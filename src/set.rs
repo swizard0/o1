@@ -9,6 +9,7 @@ pub struct Set<T> {
     serial: u64,
     cells: Vec<Option<Cell<T>>>,
     free: Vec<usize>,
+    len: usize,
 }
 
 impl<T> Set<T> {
@@ -17,6 +18,7 @@ impl<T> Set<T> {
             serial: 0,
             cells: Vec::new(),
             free: Vec::new(),
+            len: 0,
         }
     }
 
@@ -25,7 +27,12 @@ impl<T> Set<T> {
             serial: 0,
             cells: Vec::with_capacity(capacity),
             free: Vec::new(),
+            len: 0,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn insert(&mut self, item: T) -> Ref {
@@ -41,6 +48,7 @@ impl<T> Set<T> {
             self.cells.push(Some(cell));
             next_index
         };
+        self.len += 1;
         Ref { index, serial, }
     }
 
@@ -49,6 +57,7 @@ impl<T> Set<T> {
             if let Some(Cell { item, serial, }) = self.cells[set_ref.index].take() {
                 if serial == set_ref.serial {
                     self.free.push(set_ref.index);
+                    self.len -= 1;
                     return Some(item);
                 } else {
                     self.cells[set_ref.index] = Some(Cell { item, serial, });
@@ -117,23 +126,29 @@ mod test {
         let mut set = Set::new();
         let mut inserted = Vec::new();
         let mut removed = Vec::new();
+        let mut total = 0;
         let mut rng = rand::thread_rng();
         for item in 0 .. 10000 {
             match rng.gen_range(0, 10) {
                 0 ..= 5 => {
                     let set_ref = set.insert(item);
                     inserted.push((item, set_ref));
+                    total += 1;
+                    assert_eq!(set.len(), total);
                 },
                 6 ..= 7 if !inserted.is_empty() => {
                     let index = rng.gen_range(0, inserted.len());
                     let (item, set_ref) = inserted.swap_remove(index);
                     assert_eq!(set.remove(set_ref), Some(item));
                     removed.push(set_ref);
+                    total -= 1;
+                    assert_eq!(set.len(), total);
                 },
                 8 ..= 9 if !removed.is_empty() => {
                     let index = rng.gen_range(0, removed.len());
                     let set_ref = removed[index];
                     assert_eq!(set.remove(set_ref), None);
+                    assert_eq!(set.len(), total);
                 },
                 _ =>
                     (),
