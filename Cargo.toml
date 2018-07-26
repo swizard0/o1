@@ -1,0 +1,9 @@
+[package]
+name = "o1"
+version = "0.1.0"
+authors = ["Alexey Voznyuk <me@swizard.info>"]
+
+[dependencies]
+
+[dev-dependencies]
+rand = "0.5"
