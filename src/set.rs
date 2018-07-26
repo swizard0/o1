@@ -57,6 +57,25 @@ impl<T> Set<T> {
         }
         None
     }
+
+    pub fn get(&self, set_ref: Ref) -> Option<&T> {
+        match self.cells.get(set_ref.index) {
+            Some(Some(Cell { ref item, serial, })) if serial == &set_ref.serial =>
+                Some(item),
+            _ =>
+                None,
+        }
+    }
+
+    pub fn get_mut(&mut self, set_ref: Ref) -> Option<&mut T> {
+        match self.cells.get_mut(set_ref.index) {
+            Some(Some(Cell { ref mut item, serial, })) if serial == &set_ref.serial =>
+                Some(item),
+            _ =>
+                None,
+        }
+    }
+
 }
 
 struct Cell<T> {
@@ -80,11 +99,16 @@ mod test {
             let set_ref = set.insert(item);
             verify.insert(item, set_ref);
         }
-        for (&item, &set_ref) in verify.iter() {
+        for (item, &set_ref) in verify.iter() {
+            let mut item = *item;
+            assert_eq!(set.get(set_ref), Some(&item));
+            assert_eq!(set.get_mut(set_ref), Some(&mut item));
             assert_eq!(set.remove(set_ref), Some(item));
         }
         for (&_, &set_ref) in verify.iter() {
             assert_eq!(set.remove(set_ref), None);
+            assert_eq!(set.get(set_ref), None);
+            assert_eq!(set.get_mut(set_ref), None);
         }
     }
 
