@@ -41,6 +41,10 @@ impl<T> Set<T> {
         self.len
     }
 
+    pub fn serial(&self) -> u64 {
+        self.serial
+    }
+
     pub fn insert(&mut self, item: T) -> Ref {
         self.serial += 1;
         let serial = self.serial;
