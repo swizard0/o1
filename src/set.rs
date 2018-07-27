@@ -1,3 +1,9 @@
+#[cfg(feature = "with-rayon")]
+use rayon::iter::{
+    ParallelIterator,
+    IntoParallelRefIterator,
+    IndexedParallelIterator,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Ref {
@@ -99,6 +105,15 @@ impl<T> Set<T> {
 
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.iter().map(|pair| pair.1)
+    }
+
+    #[cfg(feature = "with-rayon")]
+    pub fn par_iter(&self) -> impl ParallelIterator<Item = (Ref, &T)> where T: Sync {
+        self.cells.par_iter()
+            .enumerate()
+            .flat_map(|(index, cell)| {
+                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, serial, }, item))
+            })
     }
 }
 
