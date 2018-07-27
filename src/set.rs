@@ -85,6 +85,21 @@ impl<T> Set<T> {
         }
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (Ref, &T)> {
+        self.cells.iter()
+            .enumerate()
+            .flat_map(|(index, cell)| {
+                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, serial, }, item))
+            })
+    }
+
+    pub fn refs<'a>(&'a self) -> impl Iterator<Item = Ref> + 'a {
+        self.iter().map(|pair| pair.0)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.iter().map(|pair| pair.1)
+    }
 }
 
 struct Cell<T> {
@@ -94,7 +109,7 @@ struct Cell<T> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use rand::{self, Rng};
     use super::Set;
 
@@ -128,7 +143,7 @@ mod test {
         let mut removed = Vec::new();
         let mut total = 0;
         let mut rng = rand::thread_rng();
-        for item in 0 .. 10000 {
+        for item in 0 .. 100000 {
             match rng.gen_range(0, 10) {
                 0 ..= 5 => {
                     let set_ref = set.insert(item);
@@ -153,6 +168,14 @@ mod test {
                 _ =>
                     (),
             }
+        }
+        let sample_table: HashSet<_> = set.iter().collect();
+        for &(ref item, set_ref) in inserted.iter() {
+            assert!(sample_table.contains(&(set_ref, item)));
+        }
+        let sample_table: HashSet<_> = inserted.iter().collect();
+        for (set_ref, &item) in set.iter() {
+            assert!(sample_table.contains(&(item, set_ref)));
         }
     }
 }
