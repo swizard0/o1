@@ -75,51 +75,20 @@ struct Node<T, R> {
     parent: Option<R>,
 }
 
-pub struct Bottom;
-pub struct Level<T, R> {
-    top: T,
-    rest: R,
-}
-
-pub trait LevelLayer: Sized {
-    type T;
-    type R;
-
-    fn disasm(self) -> (Self::T, Self::R);
-}
-
-impl LevelLayer for Bottom {
-    type T = Bottom;
-    type R = Bottom;
-
-    fn disasm(self) -> (Self::T, Self::R) {
-        (Bottom, Bottom)
-    }
-}
-
-impl<T, R> LevelLayer for Level<T, R> {
-    type T = T;
-    type R = R;
-
-    fn disasm(self) -> (Self::T, Self::R) {
-        (self.top, self.rest)
-    }
-}
-
 pub trait Forest<T> {
     type Ref;
-    type ExternalForest;
+    type ExternalRef;
 
     fn make_root(&mut self, item: T) -> Self::Ref;
     fn make_node(&mut self, parent_ref: Self::Ref, item: T) -> Self::Ref;
 
-    fn get<'s, 'f: 's, L>(&'s self, layer: L, node_ref: Self::Ref) -> Option<&'s T>
-        where L: LevelLayer<T = &'f Self::ExternalForest>, L::R: LevelLayer, Self::ExternalForest: 'f;
+    fn access<'s, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<(&'s T, Option<Self::Ref>)>
+        where A: Fn(Self::ExternalRef) -> Option<(&'s T, Option<Self::ExternalRef>)>;
 }
 
 impl<T> Forest<T> for Forest1<T> {
     type Ref = Ref;
-    type ExternalForest = Bottom;
+    type ExternalRef = ();
 
     fn make_root(&mut self, item: T) -> Self::Ref {
         self.nodes.insert(Node { item, parent: None, })
@@ -129,17 +98,17 @@ impl<T> Forest<T> for Forest1<T> {
         self.nodes.insert(Node { item, parent: Some(parent_ref), })
     }
 
-    fn get<'s, 'f: 's, L>(&'s self, _layer: L, node_ref: Self::Ref) -> Option<&'s T>
-        where L: LevelLayer<T = &'f Self::ExternalForest>, L::R: LevelLayer, Self::ExternalForest: 'f
+    fn access<'s, A>(&'s self, _upper_layer_access: A, node_ref: Self::Ref) -> Option<(&'s T, Option<Self::Ref>)>
+        where A: Fn(Self::ExternalRef) -> Option<(&'s T, Option<Self::ExternalRef>)>
     {
         self.nodes.get(node_ref)
-            .map(|node| &node.item)
+            .map(|node| (&node.item, node.parent))
     }
 }
 
-impl<T, F> Forest<T> for Forest2<T, F> where F: Forest<T> {
+impl<T, F> Forest<T> for Forest2<T, F> where F: Forest<T>, F::Ref: Clone {
     type Ref = Ref2<F::Ref>;
-    type ExternalForest = F;
+    type ExternalRef = F::Ref;
 
     fn make_root(&mut self, item: T) -> Self::Ref {
         Ref2::Local(self.local_nodes.insert(Node { item, parent: None, }))
@@ -149,16 +118,55 @@ impl<T, F> Forest<T> for Forest2<T, F> where F: Forest<T> {
         Ref2::Local(self.local_nodes.insert(Node { item, parent: Some(parent_ref), }))
     }
 
-    fn get<'s, 'f: 's, L>(&'s self, layer: L, node_ref: Self::Ref) -> Option<&'s T>
-        where L: LevelLayer<T = &'f Self::ExternalForest>, L::R: LevelLayer, Self::ExternalForest: 'f
+    fn access<'s, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<(&'s T, Option<Self::Ref>)>
+        where A: Fn(Self::ExternalRef) -> Option<(&'s T, Option<Self::ExternalRef>)>
     {
         match node_ref {
             Ref2::Local(local_node_ref) =>
-                self.local_nodes.get(local_node_ref).map(|node| &node.item),
-            Ref2::External(external_node_ref) => {
-                let (external_forest, next_layer) = layer.disasm();
-                external_forest.get(next_layer, external_node_ref)
-            },
+                self.local_nodes.get(local_node_ref).map(|node| (&node.item, node.parent.clone())),
+            Ref2::External(external_node_ref) =>
+                upper_layer_access(external_node_ref)
+                    .map(|(value, parent)| (value, parent.map(Ref2::External))),
         }
     }
+}
+
+pub fn get1<'a, T>(node_ref: Ref, forest: &'a Forest1<T>) -> Option<&'a T> {
+    forest.access(|()| unreachable!(), node_ref).map(|p| p.0)
+}
+
+pub fn get2<'a, T>(node_ref: Ref2<Ref>, forest2: &'a Forest2<T, Forest1<T>>, forest1: &'a Forest1<T>) -> Option<&'a T> {
+    forest2.access(|node_ref| forest1.access(|()| unreachable!(), node_ref), node_ref).map(|p| p.0)
+}
+
+pub fn get3<'a, T>(
+    node_ref: Ref2<Ref2<Ref>>,
+    forest3: &'a Forest2<T, Forest2<T, Forest1<T>>>,
+    forest2: &'a Forest2<T, Forest1<T>>,
+    forest1: &'a Forest1<T>,
+)
+    -> Option<&'a T>
+{
+    forest3.access(
+        |node_ref| forest2.access(|node_ref| forest1.access(|()| unreachable!(), node_ref), node_ref),
+        node_ref,
+    ).map(|p| p.0)
+}
+
+pub fn get4<'a, T>(
+    node_ref: Ref2<Ref2<Ref2<Ref>>>,
+    forest4: &'a Forest2<T, Forest2<T, Forest2<T, Forest1<T>>>>,
+    forest3: &'a Forest2<T, Forest2<T, Forest1<T>>>,
+    forest2: &'a Forest2<T, Forest1<T>>,
+    forest1: &'a Forest1<T>,
+)
+    -> Option<&'a T>
+{
+    forest4.access(
+        |node_ref| forest3.access(
+            |node_ref| forest2.access(|node_ref| forest1.access(|()| unreachable!(), node_ref), node_ref),
+            node_ref,
+         ),
+        node_ref,
+    ).map(|p| p.0)
 }
