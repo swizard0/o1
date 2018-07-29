@@ -207,4 +207,16 @@ mod test {
             assert!(sample_table.contains(&(item, set_ref)));
         }
     }
+
+    #[test]
+    fn wrong_set_ref() {
+        let mut set_a = Set::new();
+        let mut set_b = Set::new();
+        let set_a_ref = set_a.insert("set_a item");
+        let set_b_ref = set_b.insert("set_b item");
+        assert_eq!(set_a.get(set_a_ref), Some(&"set_a item"));
+        assert_eq!(set_b.get(set_b_ref), Some(&"set_b item"));
+        assert_eq!(set_a.get(set_b_ref), None);
+        assert_eq!(set_b.get(set_a_ref), None);
+    }
 }
