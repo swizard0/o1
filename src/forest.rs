@@ -189,7 +189,7 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
 pub mod layer_access {
     use super::{Node, Forest, NonexistentRef};
 
-    pub fn nil<'a, T>() -> impl FnOnce(NonexistentRef) -> Option<Node<&'a T, NonexistentRef>> {
+    pub fn nil<'a, T>() -> impl Fn(NonexistentRef) -> Option<Node<&'a T, NonexistentRef>> {
         move |_| unreachable!()
     }
 
@@ -201,12 +201,12 @@ pub mod layer_access {
         forest: &'s F,
         upper_layer_access: A,
     )
-        -> impl FnOnce(R) -> Option<Node<&'s T, R>>
+        -> impl Fn(R) -> Option<Node<&'s T, R>>
     where T: 'a,
           F: Forest<T, Ref = R>,
-          A: FnOnce(F::ExternalRef) -> Option<Node<&'a T, F::ExternalRef>>,
+          A: Fn(F::ExternalRef) -> Option<Node<&'a T, F::ExternalRef>>,
     {
-        move |node_ref| forest.get(upper_layer_access, node_ref)
+        move |node_ref| forest.get(&upper_layer_access, node_ref)
     }
 
     pub fn cons_get_mut<'s, 'a: 's, T, R, F, A>(
@@ -256,51 +256,30 @@ macro_rules! layers {
     };
 }
 
-// pub fn access1<'a, T, R>() -> impl Fn(R) -> Option<(&'a T, Option<R>)> {
-//     move |_| unreachable!()
-// }
+pub struct TowardsRootIter<R, A> {
+    cursor: Option<R>,
+    layer_access: A,
+}
 
-// pub fn access2<'a, T: 'a, F, A>(
-//     forest: &'a F,
-//     upper_layer_access: A,
-// )
-//     -> impl Fn(F::Ref) -> Option<(&'a T, Option<F::Ref>)>
-//     where F: Forest<T>,
-//           A: Fn(F::ExternalRef) -> Option<(&'a T, Option<F::ExternalRef>)>,
-// {
-//     move |node_ref| forest.access(&upper_layer_access, node_ref)
-// }
+impl<R, A> TowardsRootIter<R, A> {
+    pub fn new(layer_access: A, node_ref: R) -> TowardsRootIter<R, A> {
+        TowardsRootIter {
+            cursor: Some(node_ref),
+            layer_access,
+        }
+    }
+}
 
-// pub struct TowardsRootIter<R, A> {
-//     cursor: Option<R>,
-//     layer_access: A,
-// }
+impl<'a, T: 'a, R, A> Iterator for TowardsRootIter<R, A> where R: Clone, A: Fn(R) -> Option<Node<&'a T, R>> {
+    type Item = Node<&'a T, R>;
 
-// pub fn towards_root_iter<'a, T: 'a, R, A, F>(
-//     forest1: &'a F,
-//     upper_layer_access: A,
-//     node_ref: R,
-// )
-//     -> TowardsRootIter<R, impl Fn(R) -> Option<(&'a T, Option<R>)>>
-//     where F: Forest<T, Ref = R>,
-//           A: Fn(F::ExternalRef) -> Option<(&'a T, Option<F::ExternalRef>)>,
-// {
-//     TowardsRootIter {
-//         cursor: Some(node_ref),
-//         layer_access: move |node_ref| forest1.access(&upper_layer_access, node_ref),
-//     }
-// }
-
-// impl<'a, T: 'a, R, A> Iterator for TowardsRootIter<R, A> where R: Clone, A: Fn(R) -> Option<(&'a T, Option<R>)> {
-//     type Item = (R, &'a T);
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let node_ref = self.cursor.take()?;
-//         let (item, parent) = (self.layer_access)(node_ref.clone())?;
-//         self.cursor = parent;
-//         Some((node_ref, item))
-//     }
-// }
+    fn next(&mut self) -> Option<Self::Item> {
+        let node_ref = self.cursor.take()?;
+        let node = (self.layer_access)(node_ref.clone())?;
+        self.cursor = node.parent.clone();
+        Some(node)
+    }
+}
 
 
 #[cfg(test)]
@@ -309,6 +288,7 @@ mod test {
         Forest,
         Forest1,
         Forest2,
+        TowardsRootIter,
         layer_access,
     };
 
@@ -353,6 +333,9 @@ mod test {
         assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.item), Some(&"child_e"));
         assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.parent), Some(Some(child_c_ext)));
         assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.depth), Some(3));
+
+        let iter = TowardsRootIter::new(layer_access::cons_get(&forest2, layer_access::cons_get(&forest1, layer_access::nil())), child_e);
+        assert_eq!(iter.map(|node| node.item).collect::<Vec<_>>(), vec![&"child_e", &"child_c", &"child_a", &"root"]);
     }
 
     #[test]
