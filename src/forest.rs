@@ -226,23 +226,23 @@ pub mod layer_access {
 #[macro_export]
 macro_rules! layers {
     { [$f:expr $(, $fs:expr),*].get($ref:expr) } => {
-        layers!(@rec layer_access::cons_get(&$f, layer_access::nil()), [$($fs)*].get($ref))
+        layers!(@rec layer_access::cons_get($f, layer_access::nil()), [$($fs)*].get($ref))
     };
     { @rec $a:expr, [].get($ref:expr) } => {
         ($a)($ref)
     };
     { @rec $a:expr, [$f:expr $(, $fs:expr),*].get($ref:expr) } => {
-        layers!(@rec layer_access::cons_get(&$f, $a), [$($fs)*].get($ref))
+        layers!(@rec layer_access::cons_get($f, $a), [$($fs)*].get($ref))
     };
 
     { [$f:expr $(, $fs:expr),*].get_mut($ref:expr) } => {
-        layers!(@rec layer_access::cons_get_mut(&mut $f, layer_access::nil_mut()), [$($fs)*].get_mut($ref))
+        layers!(@rec layer_access::cons_get_mut($f, layer_access::nil_mut()), [$($fs)*].get_mut($ref))
     };
     { @rec $a:expr, [].get_mut($ref:expr) } => {
         ($a)($ref)
     };
     { @rec $a:expr, [$f:expr $(, $fs:expr),*].get_mut($ref:expr) } => {
-        layers!(@rec layer_access::cons_get_mut(&mut $f, $a), [$($fs)*].get_mut($ref))
+        layers!(@rec layer_access::cons_get_mut($f, $a), [$($fs)*].get_mut($ref))
     };
 
     { [$f:expr $(, $fs:expr),*].make_node($parent_ref:expr, $item:expr) } => {
@@ -252,7 +252,7 @@ macro_rules! layers {
         $fe.make_node($a, $parent_ref, $item)
     };
     { @rec $fe:expr, $a:expr, [$f:expr $(, $fs:expr),*].make_node($parent_ref:expr, $item:expr) } => {
-        layers!(@rec $f, layer_access::cons_get(&$fe, $a), [$($fs)*].make_node($parent_ref, $item))
+        layers!(@rec $f, layer_access::cons_get($fe, $a), [$($fs)*].make_node($parent_ref, $item))
     };
 }
 
@@ -361,17 +361,17 @@ mod test {
         let mut forest2 = Forest2::new();
 
         let root = forest1.make_root("root");
-        assert_eq!(layers!([forest1].get(root)).map(|node| node.item), Some(&"root"));
+        assert_eq!(layers!([&forest1].get(root)).map(|node| node.item), Some(&"root"));
 
         let root2 = forest2.make_root("root2");
-        assert_eq!(layers!([forest1, forest2].get(root2)).map(|node| node.item), Some(&"root2"));
+        assert_eq!(layers!([&forest1, &forest2].get(root2)).map(|node| node.item), Some(&"root2"));
 
         let root_ext = forest2.external(root);
-        let child = layers!([forest1, forest2].make_node(root_ext, "child"));
-        assert_eq!(layers!([forest1, forest2].get(child)).map(|node| node.item), Some(&"child"));
+        let child = layers!([&forest1, &mut forest2].make_node(root_ext, "child"));
+        assert_eq!(layers!([&forest1, &forest2].get(child)).map(|node| node.item), Some(&"child"));
 
-        layers!([forest1, forest2].get_mut(child)).map(|node| *node.item = "other child");
-        assert_eq!(layers!([forest1, forest2].get(child)).map(|node| node.item), Some(&"other child"));
+        layers!([&mut forest1, &mut forest2].get_mut(child)).map(|node| *node.item = "other child");
+        assert_eq!(layers!([&forest1, &forest2].get(child)).map(|node| node.item), Some(&"other child"));
 
 
         // assert_eq!(forest1.get(layer_access::nil(), root).map(|node| node.parent), Some(None));
