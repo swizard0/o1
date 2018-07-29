@@ -82,9 +82,11 @@ pub trait Forest<T> {
     }
 }
 
+pub struct NonexistentRef;
+
 impl<T> Forest<T> for Forest1<T> {
     type Ref = Ref;
-    type ExternalRef = ();
+    type ExternalRef = NonexistentRef;
 
     fn insert(&mut self, node: Node<T, Self::Ref>) -> Self::Ref {
         self.nodes.insert(node)
@@ -184,9 +186,9 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
 }
 
 pub mod layer_access {
-    use super::{Node, Forest};
+    use super::{Node, Forest, NonexistentRef};
 
-    pub fn nil<'a, T, R>() -> impl Fn(R) -> Option<Node<&'a T, R>> {
+    pub fn nil<'a, T>() -> impl Fn(NonexistentRef) -> Option<Node<&'a T, NonexistentRef>> {
         move |_| unreachable!()
     }
 
