@@ -24,7 +24,7 @@ impl<T> Forest1<T> {
     }
 
     fn make_root(&mut self, item: T) -> Ref {
-        self.nodes.insert(Node { item, parent: None, depth: 0, })
+        self.insert(Node { item, parent: None, depth: 0, })
     }
 }
 
@@ -60,29 +60,45 @@ trait Forest<T> {
     type Ref;
     type ExternalRef;
 
-    fn get<'s, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
-        where A: Fn(Self::ExternalRef) -> Option<Node<&'s T, Self::ExternalRef>>;
+    fn insert(&mut self, node: Node<T, Self::Ref>) -> Self::Ref;
 
-    fn get_mut<'s, A>(&'s mut self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
-        where A: FnMut(Self::ExternalRef) -> Option<Node<&'s mut T, Self::ExternalRef>>;
+    fn get<'s, 'a: 's, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
+        where T: 'a, A: Fn(Self::ExternalRef) -> Option<Node<&'a T, Self::ExternalRef>>;
+
+    fn get_mut<'s, 'a: 's, A>(&'s mut self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
+        where T: 'a, A: FnMut(Self::ExternalRef) -> Option<Node<&'a mut T, Self::ExternalRef>>;
 
     fn remove<A>(&mut self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<T, Self::Ref>>
         where A: FnMut(Self::ExternalRef) -> Option<Node<T, Self::ExternalRef>>;
+
+    fn make_node<'s, 'a: 's, A>(&'s mut self, upper_layer_access: A, parent_ref: Self::Ref, item: T) -> Self::Ref
+        where T: 'a, Self::Ref: Clone, A: Fn(Self::ExternalRef) -> Option<Node<&'a T, Self::ExternalRef>>
+    {
+        if let Some(parent_depth) = self.get(upper_layer_access, parent_ref.clone()).map(|node| node.depth) {
+            self.insert(Node { item, parent: Some(parent_ref), depth: parent_depth + 1, })
+        } else {
+            self.insert(Node { item, parent: None, depth: 0, })
+        }
+    }
 }
 
 impl<T> Forest<T> for Forest1<T> {
     type Ref = Ref;
     type ExternalRef = ();
 
-    fn get<'s, A>(&'s self, _upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
-        where A: Fn(Self::ExternalRef) -> Option<Node<&'s T, Self::ExternalRef>>
+    fn insert(&mut self, node: Node<T, Self::Ref>) -> Self::Ref {
+        self.nodes.insert(node)
+    }
+
+    fn get<'s, 'a: 's, A>(&'s self, _upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
+        where T: 'a, A: Fn(Self::ExternalRef) -> Option<Node<&'a T, Self::ExternalRef>>
     {
         self.nodes.get(node_ref)
             .map(|node| Node { item: &node.item, parent: node.parent, depth: node.depth, })
     }
 
-    fn get_mut<'s, A>(&'s mut self, _upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
-        where A: FnMut(Self::ExternalRef) -> Option<Node<&'s mut T, Self::ExternalRef>>
+    fn get_mut<'s, 'a: 's, A>(&'s mut self, _upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
+        where T: 'a, A: FnMut(Self::ExternalRef) -> Option<Node<&'a mut T, Self::ExternalRef>>
     {
         self.nodes.get_mut(node_ref)
             .map(|node| Node { item: &mut node.item, parent: node.parent, depth: node.depth, })
@@ -99,8 +115,12 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
     type Ref = Ref2<R>;
     type ExternalRef = R;
 
-    fn get<'s, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
-        where A: Fn(Self::ExternalRef) -> Option<Node<&'s T, Self::ExternalRef>>
+    fn insert(&mut self, node: Node<T, Self::Ref>) -> Self::Ref {
+        Ref2::Local(self.local_nodes.insert(node))
+    }
+
+    fn get<'s, 'a: 's, A>(&'s self, upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s T, Self::Ref>>
+        where T: 'a, A: Fn(Self::ExternalRef) -> Option<Node<&'a T, Self::ExternalRef>>
     {
         match node_ref {
             Ref2::Local(local_node_ref) => {
@@ -122,8 +142,8 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
         }
     }
 
-    fn get_mut<'s, A>(&'s mut self, mut upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
-        where A: FnMut(Self::ExternalRef) -> Option<Node<&'s mut T, Self::ExternalRef>>
+    fn get_mut<'s, 'a: 's, A>(&'s mut self, mut upper_layer_access: A, node_ref: Self::Ref) -> Option<Node<&'s mut T, Self::Ref>>
+        where T: 'a, A: FnMut(Self::ExternalRef) -> Option<Node<&'a mut T, Self::ExternalRef>>
     {
         match node_ref {
             Ref2::Local(local_node_ref) => {
@@ -162,6 +182,23 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
         }
     }
 }
+
+pub fn nil<'a, T, R>() -> impl Fn(R) -> Option<(&'a T, Option<R>)> {
+    move |_| unreachable!()
+}
+
+pub fn car_get<'s, 'a: 's, T, F, A>(
+    forest: &'s F,
+    upper_layer_access: A,
+)
+    -> impl Fn(F::Ref) -> Option<Node<&'s T, F::Ref>>
+    where T: 'a,
+          F: Forest<T>,
+          A: Fn(F::ExternalRef) -> Option<Node<&'a T, F::ExternalRef>>,
+{
+    move |node_ref| forest.get(&upper_layer_access, node_ref)
+}
+
 
 // pub fn access1<'a, T, R>() -> impl Fn(R) -> Option<(&'a T, Option<R>)> {
 //     move |_| unreachable!()
