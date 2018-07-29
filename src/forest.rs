@@ -22,10 +22,6 @@ impl<T> Forest1<T> {
             nodes: Set::with_capacity(capacity),
         }
     }
-
-    fn make_root(&mut self, item: T) -> Ref {
-        self.insert(Node { item, parent: None, depth: 0, })
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -51,14 +47,18 @@ impl<T, R> Forest2<T, R> {
         }
     }
 
-    fn make_root(&mut self, item: T) -> Ref2<R> {
-        Ref2::Local(self.local_nodes.insert(Node { item, parent: None, depth: 0, }))
+    pub fn external(&self, node_ref: R) -> Ref2<R> {
+        Ref2::External(node_ref)
     }
 }
 
-trait Forest<T> {
+pub trait Forest<T> {
     type Ref;
     type ExternalRef;
+
+    fn make_root(&mut self, item: T) -> Self::Ref {
+        self.insert(Node { item, parent: None, depth: 0, })
+    }
 
     fn insert(&mut self, node: Node<T, Self::Ref>) -> Self::Ref;
 
@@ -183,21 +183,26 @@ impl<T, R> Forest<T> for Forest2<T, R> where R: Clone {
     }
 }
 
-pub fn nil<'a, T, R>() -> impl Fn(R) -> Option<(&'a T, Option<R>)> {
-    move |_| unreachable!()
+pub mod layer_access {
+    use super::{Node, Forest};
+
+    pub fn nil<'a, T, R>() -> impl Fn(R) -> Option<Node<&'a T, R>> {
+        move |_| unreachable!()
+    }
+
+    pub fn cons_get<'s, 'a: 's, T, R, F, A>(
+        forest: &'s F,
+        upper_layer_access: A,
+    )
+        -> impl Fn(R) -> Option<Node<&'s T, R>>
+    where T: 'a,
+          F: Forest<T, Ref = R>,
+          A: Fn(F::ExternalRef) -> Option<Node<&'a T, F::ExternalRef>>,
+    {
+        move |node_ref| forest.get(&upper_layer_access, node_ref)
+    }
 }
 
-pub fn car_get<'s, 'a: 's, T, F, A>(
-    forest: &'s F,
-    upper_layer_access: A,
-)
-    -> impl Fn(F::Ref) -> Option<Node<&'s T, F::Ref>>
-    where T: 'a,
-          F: Forest<T>,
-          A: Fn(F::ExternalRef) -> Option<Node<&'a T, F::ExternalRef>>,
-{
-    move |node_ref| forest.get(&upper_layer_access, node_ref)
-}
 
 
 // pub fn access1<'a, T, R>() -> impl Fn(R) -> Option<(&'a T, Option<R>)> {
@@ -252,25 +257,50 @@ mod test {
     use super::{
         Forest,
         Forest1,
-        access1,
-        towards_root_iter,
+        Forest2,
+        layer_access,
     };
 
     #[test]
-    fn forest1() {
+    fn layer_access() {
         let mut forest1 = Forest1::new();
+
         let root = forest1.make_root("root");
-        let child_a = forest1.make_node(root, "child_a");
-        assert_eq!(forest1.parent(access1(), child_a), Some(root));
-        let child_b = forest1.make_node(root, "child_b");
-        let child_c = forest1.make_node(child_a, "child_c");
+        assert_eq!(forest1.get(layer_access::nil(), root).map(|node| node.item), Some(&"root"));
+        assert_eq!(forest1.get(layer_access::nil(), root).map(|node| node.parent), Some(None));
+        assert_eq!(forest1.get(layer_access::nil(), root).map(|node| node.depth), Some(0));
 
-        assert_eq!(forest1.get(access1(), root), Some(&"root"));
-        assert_eq!(forest1.get(access1(), child_a), Some(&"child_a"));
-        assert_eq!(forest1.get(access1(), child_b), Some(&"child_b"));
-        assert_eq!(forest1.get(access1(), child_c), Some(&"child_c"));
+        let child_a = forest1.make_node(layer_access::nil(), root, "child_a");
+        assert_eq!(forest1.get(layer_access::nil(), child_a).map(|node| node.item), Some(&"child_a"));
+        assert_eq!(forest1.get(layer_access::nil(), child_a).map(|node| node.parent), Some(Some(root)));
+        assert_eq!(forest1.get(layer_access::nil(), child_a).map(|node| node.depth), Some(1));
 
-        let rev_path: Vec<_> = towards_root_iter(&forest1, access1(), child_c).map(|p| p.1).collect();
-        assert_eq!(rev_path, vec![&"child_c", &"child_a", &"root"]);
+        let child_b = forest1.make_node(layer_access::nil(), root, "child_b");
+        assert_eq!(forest1.get(layer_access::nil(), child_b).map(|node| node.item), Some(&"child_b"));
+        assert_eq!(forest1.get(layer_access::nil(), child_b).map(|node| node.parent), Some(Some(root)));
+        assert_eq!(forest1.get(layer_access::nil(), child_b).map(|node| node.depth), Some(1));
+
+        let child_c = forest1.make_node(layer_access::nil(), child_a, "child_c");
+        assert_eq!(forest1.get(layer_access::nil(), child_c).map(|node| node.item), Some(&"child_c"));
+        assert_eq!(forest1.get(layer_access::nil(), child_c).map(|node| node.parent), Some(Some(child_a)));
+        assert_eq!(forest1.get(layer_access::nil(), child_c).map(|node| node.depth), Some(2));
+
+        let mut forest2 = Forest2::new();
+
+        let root2 = forest2.make_root("root2");
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), root2).map(|node| node.item), Some(&"root2"));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), root2).map(|node| node.parent), Some(None));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), root2).map(|node| node.depth), Some(0));
+
+        let child_d = forest2.make_node(layer_access::cons_get(&forest1, layer_access::nil()), root2, "child_d");
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_d).map(|node| node.item), Some(&"child_d"));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_d).map(|node| node.parent), Some(Some(root2)));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_d).map(|node| node.depth), Some(1));
+
+        let child_c_ext = forest2.external(child_c);
+        let child_e = forest2.make_node(layer_access::cons_get(&forest1, layer_access::nil()), child_c_ext, "child_e");
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.item), Some(&"child_e"));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.parent), Some(Some(child_c_ext)));
+        assert_eq!(forest2.get(layer_access::cons_get(&forest1, layer_access::nil()), child_e).map(|node| node.depth), Some(3));
     }
 }
