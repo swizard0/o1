@@ -1,3 +1,5 @@
+use std::sync::atomic::{self, AtomicUsize, ATOMIC_USIZE_INIT};
+
 #[cfg(feature = "with-rayon")]
 use rayon::iter::{
     ParallelIterator,
@@ -5,13 +7,17 @@ use rayon::iter::{
     IndexedParallelIterator,
 };
 
+pub static UID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Ref {
     index: usize,
+    set_uid: u64,
     serial: u64,
 }
 
 pub struct Set<T> {
+    uid: u64,
     serial: u64,
     cells: Vec<Option<Cell<T>>>,
     free: Vec<usize>,
@@ -21,6 +27,7 @@ pub struct Set<T> {
 impl<T> Set<T> {
     pub fn new() -> Set<T> {
         Set {
+            uid: UID_COUNTER.fetch_add(1, atomic::Ordering::Relaxed) as u64,
             serial: 0,
             cells: Vec::new(),
             free: Vec::new(),
@@ -30,6 +37,7 @@ impl<T> Set<T> {
 
     pub fn with_capacity(capacity: usize) -> Set<T> {
         Set {
+            uid: UID_COUNTER.fetch_add(1, atomic::Ordering::Relaxed) as u64,
             serial: 0,
             cells: Vec::with_capacity(capacity),
             free: Vec::new(),
@@ -59,11 +67,11 @@ impl<T> Set<T> {
             next_index
         };
         self.len += 1;
-        Ref { index, serial, }
+        Ref { index, serial, set_uid: self.uid, }
     }
 
     pub fn remove(&mut self, set_ref: Ref) -> Option<T> {
-        if set_ref.index < self.cells.len() {
+        if set_ref.set_uid == self.uid && set_ref.index < self.cells.len() {
             if let Some(Cell { item, serial, }) = self.cells[set_ref.index].take() {
                 if serial == set_ref.serial {
                     self.free.push(set_ref.index);
@@ -79,7 +87,7 @@ impl<T> Set<T> {
 
     pub fn get(&self, set_ref: Ref) -> Option<&T> {
         match self.cells.get(set_ref.index) {
-            Some(Some(Cell { ref item, serial, })) if serial == &set_ref.serial =>
+            Some(Some(Cell { ref item, serial, })) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
                 Some(item),
             _ =>
                 None,
@@ -88,7 +96,7 @@ impl<T> Set<T> {
 
     pub fn get_mut(&mut self, set_ref: Ref) -> Option<&mut T> {
         match self.cells.get_mut(set_ref.index) {
-            Some(Some(Cell { ref mut item, serial, })) if serial == &set_ref.serial =>
+            Some(Some(Cell { ref mut item, serial, })) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
                 Some(item),
             _ =>
                 None,
@@ -96,10 +104,11 @@ impl<T> Set<T> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Ref, &T)> {
+        let set_uid = self.uid;
         self.cells.iter()
             .enumerate()
-            .flat_map(|(index, cell)| {
-                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, serial, }, item))
+            .flat_map(move |(index, cell)| {
+                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, set_uid, serial, }, item))
             })
     }
 
@@ -113,10 +122,11 @@ impl<T> Set<T> {
 
     #[cfg(feature = "with-rayon")]
     pub fn par_iter(&self) -> impl ParallelIterator<Item = (Ref, &T)> where T: Sync {
+        let set_uid = self.uid;
         self.cells.par_iter()
             .enumerate()
-            .flat_map(|(index, cell)| {
-                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, serial, }, item))
+            .flat_map(move |(index, cell)| {
+                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, set_uid, serial, }, item))
             })
     }
 }
