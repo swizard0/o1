@@ -19,7 +19,7 @@ pub struct Ref {
 pub struct Set<T> {
     uid: u64,
     serial: u64,
-    cells: Vec<Option<Cell<T>>>,
+    cells: Vec<Cell<T>>,
     free: Vec<usize>,
     len: usize,
 }
@@ -56,14 +56,15 @@ impl<T> Set<T> {
     pub fn insert(&mut self, item: T) -> Ref {
         self.serial += 1;
         let serial = self.serial;
-        let cell = Cell { item, serial };
         let index = if let Some(free_index) = self.free.pop() {
-            assert!(self.cells[free_index].is_none());
-            self.cells[free_index] = Some(cell);
+            let cell = self.cells.get_mut(free_index).unwrap();
+            assert!(cell.item.is_none());
+            cell.item = Some(item);
+            cell.serial = serial;
             free_index
         } else {
             let next_index = self.cells.len();
-            self.cells.push(Some(cell));
+            self.cells.push(Cell { item: Some(item), serial });
             next_index
         };
         self.len += 1;
@@ -71,24 +72,21 @@ impl<T> Set<T> {
     }
 
     pub fn remove(&mut self, set_ref: Ref) -> Option<T> {
-        if set_ref.set_uid == self.uid && set_ref.index < self.cells.len() {
-            if let Some(Cell { item, serial, }) = self.cells[set_ref.index].take() {
-                if serial == set_ref.serial {
-                    self.free.push(set_ref.index);
-                    self.len -= 1;
-                    return Some(item);
-                } else {
-                    self.cells[set_ref.index] = Some(Cell { item, serial, });
-                }
-            }
+        match self.cells.get_mut(set_ref.index) {
+            Some(Cell { item: whole_item @ Some(..), serial, }) if set_ref.set_uid == self.uid && *serial == set_ref.serial => {
+                self.free.push(set_ref.index);
+                self.len -= 1;
+                whole_item.take()
+            },
+            _ =>
+                None
         }
-        None
     }
 
     pub fn get(&self, set_ref: Ref) -> Option<&T> {
         match self.cells.get(set_ref.index) {
-            Some(Some(Cell { ref item, serial, })) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
-                Some(item),
+            Some(Cell { ref item, serial, }) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
+                item.as_ref(),
             _ =>
                 None,
         }
@@ -96,19 +94,51 @@ impl<T> Set<T> {
 
     pub fn get_mut(&mut self, set_ref: Ref) -> Option<&mut T> {
         match self.cells.get_mut(set_ref.index) {
-            Some(Some(Cell { ref mut item, serial, })) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
-                Some(item),
+            Some(Cell { ref mut item, serial, }) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
+                item.as_mut(),
             _ =>
                 None,
         }
     }
+
+    // pub fn consume<F>(&mut self, mut other_set: Set<T>, mut items_transform: F) where F: ItemsTransform<F> {
+    //     let set_uid = self.uid;
+    //     let offset = self.cells.len();
+
+    //     let other_cells_iter = other_set.cells.iter_mut()
+    //         .enumerate()
+    //         .flat_map(move |(index, maybe_cell)| maybe_cell.as_mut().map(|cell| (index, cell)));
+
+    //     // for (other_ref, other_item) in other_set.into_iter() {
+    //     //     self.serial += 1;
+    //     //     let serial = self.serial;
+    //     //     let cell = Cell { item: other_item, serial };
+    //     //     let next_index = self.cells.len();
+    //     //     self.cells.push(Some(cell));
+    //     //     self.len += 1;
+    //     //     let next_ref = Ref { index: next_index, serial, set_uid: self.uid, };
+
+    //     //     let own_item = items_transform(other_item, |other_ref| {
+    //     //         let index = offset + other_ref.index;
+
+    //     //         Ref {
+    //     //             index,
+    //     //             set_uid: self.uid,
+    //     //             serial: self.serial,
+    //     //         }
+    //     //     });
+
+    //     // }
+
+    //     unimplemented!()
+    // }
 
     pub fn iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         let set_uid = self.uid;
         self.cells.iter()
             .enumerate()
             .flat_map(move |(index, cell)| {
-                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, set_uid, serial, }, item))
+                cell.item.as_ref().map(|item| (Ref { index, set_uid, serial: cell.serial, }, item))
             })
     }
 
@@ -126,13 +156,23 @@ impl<T> Set<T> {
         self.cells.par_iter()
             .enumerate()
             .flat_map(move |(index, cell)| {
-                cell.as_ref().map(|&Cell { ref item, serial, }| (Ref { index, set_uid, serial, }, item))
+                cell.item.as_ref().map(|item| (Ref { index, set_uid, serial: cell.serial, }, item))
             })
     }
 }
 
+pub trait ItemsTransform<T> {
+    fn item_transform<RF>(&mut self, item: T, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref;
+}
+
+impl<T, F> ItemsTransform<T> for F where F: FnMut(T, &FnMut(Ref) -> Ref) -> T {
+    fn item_transform<RF>(&mut self, item: T, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref {
+        (self)(item, &ref_transform)
+    }
+}
+
 struct Cell<T> {
-    item: T,
+    item: Option<T>,
     serial: u64,
 }
 
