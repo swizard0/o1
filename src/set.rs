@@ -54,21 +54,9 @@ impl<T> Set<T> {
     }
 
     pub fn insert(&mut self, item: T) -> Ref {
-        self.serial += 1;
-        let serial = self.serial;
-        let index = if let Some(free_index) = self.free.pop() {
-            let cell = self.cells.get_mut(free_index).unwrap();
-            assert!(cell.item.is_none());
-            cell.item = Some(item);
-            cell.serial = serial;
-            free_index
-        } else {
-            let next_index = self.cells.len();
-            self.cells.push(Cell { item: Some(item), serial });
-            next_index
-        };
-        self.len += 1;
-        Ref { index, serial, set_uid: self.uid, }
+        let set_ref = self.insert_empty();
+        self.cells[set_ref.index].item = Some(item);
+        set_ref
     }
 
     pub fn remove(&mut self, set_ref: Ref) -> Option<T> {
@@ -101,37 +89,28 @@ impl<T> Set<T> {
         }
     }
 
-    // pub fn consume<F>(&mut self, mut other_set: Set<T>, mut items_transform: F) where F: ItemsTransform<F> {
-    //     let set_uid = self.uid;
-    //     let offset = self.cells.len();
+    pub fn consume<U, F>(&mut self, mut other_set: Set<U>, mut items_transformer: F) where F: ItemsTransformer<T, U> {
+        // first add as many empty cells in `self` as in `other_set`
+        // and replace `other_set`'s cells serials with new index
+        for other_cell in other_set.cells.iter_mut().filter(|cell| cell.item.is_some()) {
+            let set_ref = self.insert_empty();
+            other_cell.serial = set_ref.index as u64;
+        }
 
-    //     let other_cells_iter = other_set.cells.iter_mut()
-    //         .enumerate()
-    //         .flat_map(move |(index, maybe_cell)| maybe_cell.as_mut().map(|cell| (index, cell)));
-
-    //     // for (other_ref, other_item) in other_set.into_iter() {
-    //     //     self.serial += 1;
-    //     //     let serial = self.serial;
-    //     //     let cell = Cell { item: other_item, serial };
-    //     //     let next_index = self.cells.len();
-    //     //     self.cells.push(Some(cell));
-    //     //     self.len += 1;
-    //     //     let next_ref = Ref { index: next_index, serial, set_uid: self.uid, };
-
-    //     //     let own_item = items_transform(other_item, |other_ref| {
-    //     //         let index = offset + other_ref.index;
-
-    //     //         Ref {
-    //     //             index,
-    //     //             set_uid: self.uid,
-    //     //             serial: self.serial,
-    //     //         }
-    //     //     });
-
-    //     // }
-
-    //     unimplemented!()
-    // }
+        let set_uid = self.uid;
+        // perform second pass with actual items transferring and transforming
+        for other_cell_index in 0 .. other_set.cells.len() {
+            if let Some(other_item) = other_set.cells[other_cell_index].item.take() {
+                let self_item = items_transformer.transform(other_item, |other_set_ref| {
+                    let index = other_set.cells[other_set_ref.index].serial as usize;
+                    let serial = self.cells[index].serial;
+                    Ref { index, serial, set_uid, }
+                });
+                let index = other_set.cells[other_cell_index].serial as usize;
+                self.cells[index].item = Some(self_item);
+            }
+        }
+    }
 
     pub fn iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         let set_uid = self.uid;
@@ -159,14 +138,31 @@ impl<T> Set<T> {
                 cell.item.as_ref().map(|item| (Ref { index, set_uid, serial: cell.serial, }, item))
             })
     }
+
+    fn insert_empty(&mut self) -> Ref {
+        self.serial += 1;
+        let serial = self.serial;
+        let index = if let Some(free_index) = self.free.pop() {
+            let cell = self.cells.get_mut(free_index).unwrap();
+            assert!(cell.item.is_none());
+            cell.serial = serial;
+            free_index
+        } else {
+            let next_index = self.cells.len();
+            self.cells.push(Cell { item: None, serial });
+            next_index
+        };
+        self.len += 1;
+        Ref { index, serial, set_uid: self.uid, }
+    }
 }
 
-pub trait ItemsTransform<T> {
-    fn item_transform<RF>(&mut self, item: T, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref;
+pub trait ItemsTransformer<T, U> {
+    fn transform<RF>(&mut self, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref;
 }
 
-impl<T, F> ItemsTransform<T> for F where F: FnMut(T, &FnMut(Ref) -> Ref) -> T {
-    fn item_transform<RF>(&mut self, item: T, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref {
+impl<T, U, F> ItemsTransformer<T, U> for F where F: FnMut(U, &FnMut(Ref) -> Ref) -> T {
+    fn transform<RF>(&mut self, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref {
         (self)(item, &ref_transform)
     }
 }
