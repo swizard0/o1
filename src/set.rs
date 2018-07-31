@@ -1,4 +1,4 @@
-use std::sync::atomic::{self, AtomicUsize, ATOMIC_USIZE_INIT};
+use std::{mem, sync::atomic::{self, AtomicUsize, ATOMIC_USIZE_INIT}};
 
 #[cfg(feature = "with-rayon")]
 use rayon::iter::{
@@ -55,13 +55,17 @@ impl<T> Set<T> {
 
     pub fn insert(&mut self, item: T) -> Ref {
         let set_ref = self.insert_empty();
-        self.cells[set_ref.index].item = Some(item);
+        self.cells[set_ref.index].state =
+            CellState::Regular { item: Some(item), };
         set_ref
     }
 
     pub fn remove(&mut self, set_ref: Ref) -> Option<T> {
+        if set_ref.set_uid != self.uid {
+            return None;
+        }
         match self.cells.get_mut(set_ref.index) {
-            Some(Cell { item: whole_item @ Some(..), serial, }) if set_ref.set_uid == self.uid && *serial == set_ref.serial => {
+            Some(Cell { serial, state: CellState::Regular { item: whole_item @ Some(..), }, }) if *serial == set_ref.serial => {
                 self.free.push(set_ref.index);
                 self.len -= 1;
                 whole_item.take()
@@ -73,7 +77,7 @@ impl<T> Set<T> {
 
     pub fn get(&self, set_ref: Ref) -> Option<&T> {
         match self.cells.get(set_ref.index) {
-            Some(Cell { ref item, serial, }) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
+            Some(&Cell { serial, state: CellState::Regular { ref item, }, }) if set_ref.set_uid == self.uid && serial == set_ref.serial =>
                 item.as_ref(),
             _ =>
                 None,
@@ -82,7 +86,7 @@ impl<T> Set<T> {
 
     pub fn get_mut(&mut self, set_ref: Ref) -> Option<&mut T> {
         match self.cells.get_mut(set_ref.index) {
-            Some(Cell { ref mut item, serial, }) if set_ref.set_uid == self.uid && serial == &set_ref.serial =>
+            Some(&mut Cell { serial, state: CellState::Regular { ref mut item, }, }) if set_ref.set_uid == self.uid && serial == set_ref.serial =>
                 item.as_mut(),
             _ =>
                 None,
@@ -92,22 +96,43 @@ impl<T> Set<T> {
     pub fn consume<U, F>(&mut self, mut other_set: Set<U>, mut items_transformer: F) where F: ItemsTransformer<T, U> {
         // first add as many empty cells in `self` as in `other_set`
         // and replace `other_set`'s cells serials with new index
-        for other_cell in other_set.cells.iter_mut().filter(|cell| cell.item.is_some()) {
-            let set_ref = self.insert_empty();
-            other_cell.serial = set_ref.index as u64;
+        self.cells.reserve(other_set.len());
+        for other_cell in other_set.cells.iter_mut() {
+            let taken_state = mem::replace(&mut other_cell.state, CellState::Regular { item: None, });
+            if let CellState::Regular { item: Some(other_item), } = taken_state {
+                let set_ref = self.insert_empty();
+                other_cell.state = CellState::Reloc {
+                    item: other_item,
+                    reloc_index: set_ref.index,
+                };
+            }
         }
 
-        let set_uid = self.uid;
         // perform second pass with actual items transferring and transforming
         for other_cell_index in 0 .. other_set.cells.len() {
-            if let Some(other_item) = other_set.cells[other_cell_index].item.take() {
-                let self_item = items_transformer.transform(other_item, |other_set_ref| {
-                    let index = other_set.cells[other_set_ref.index].serial as usize;
-                    let serial = self.cells[index].serial;
-                    Ref { index, serial, set_uid, }
+            let taken_state = mem::replace(&mut other_set.cells[other_cell_index].state, CellState::Regular { item: None, });
+            if let CellState::Reloc { item: other_item, reloc_index, } = taken_state {
+                other_set.cells[other_cell_index].state = CellState::Moved { reloc_index, };
+                let other_set_ref = Ref {
+                    index: other_cell_index,
+                    serial: other_set.cells[other_cell_index].serial,
+                    set_uid: other_set.uid,
+                };
+                let self_item = items_transformer.transform(other_set_ref, other_item, |transform_ref| {
+                    match other_set.cells.get(transform_ref.index) {
+                        Some(&Cell { serial, state: CellState::Moved { reloc_index, }, }) |
+                        Some(&Cell { serial, state: CellState::Reloc { reloc_index, .. }, })
+                            if other_set.uid == transform_ref.set_uid && serial == transform_ref.serial =>
+                            Some(Ref {
+                                index: reloc_index,
+                                serial: self.cells[reloc_index].serial,
+                                set_uid: self.uid,
+                            }),
+                        _ =>
+                            None,
+                    }
                 });
-                let index = other_set.cells[other_cell_index].serial as usize;
-                self.cells[index].item = Some(self_item);
+                self.cells[reloc_index].state = CellState::Regular { item: Some(self_item), };
             }
         }
     }
@@ -116,8 +141,11 @@ impl<T> Set<T> {
         let set_uid = self.uid;
         self.cells.iter()
             .enumerate()
-            .flat_map(move |(index, cell)| {
-                cell.item.as_ref().map(|item| (Ref { index, set_uid, serial: cell.serial, }, item))
+            .flat_map(move |(index, cell)| match cell.state {
+                CellState::Regular { item: Some(ref item), } =>
+                    Some((Ref { index, set_uid, serial: cell.serial, }, item)),
+                _ =>
+                    None,
             })
     }
 
@@ -134,8 +162,11 @@ impl<T> Set<T> {
         let set_uid = self.uid;
         self.cells.par_iter()
             .enumerate()
-            .flat_map(move |(index, cell)| {
-                cell.item.as_ref().map(|item| (Ref { index, set_uid, serial: cell.serial, }, item))
+            .flat_map(move |(index, cell)| match cell.state {
+                CellState::Regular { item: Some(ref item), } =>
+                    Some((Ref { index, set_uid, serial: cell.serial, }, item)),
+                _ =>
+                    None,
             })
     }
 
@@ -143,13 +174,11 @@ impl<T> Set<T> {
         self.serial += 1;
         let serial = self.serial;
         let index = if let Some(free_index) = self.free.pop() {
-            let cell = self.cells.get_mut(free_index).unwrap();
-            assert!(cell.item.is_none());
-            cell.serial = serial;
+            self.cells[free_index] = Cell { serial, state: CellState::Regular { item: None, }, };
             free_index
         } else {
             let next_index = self.cells.len();
-            self.cells.push(Cell { item: None, serial });
+            self.cells.push(Cell { serial, state: CellState::Regular { item: None, }, });
             next_index
         };
         self.len += 1;
@@ -158,18 +187,24 @@ impl<T> Set<T> {
 }
 
 pub trait ItemsTransformer<T, U> {
-    fn transform<RF>(&mut self, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref;
+    fn transform<RF>(&mut self, set_ref: Ref, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Option<Ref>;
 }
 
-impl<T, U, F> ItemsTransformer<T, U> for F where F: FnMut(U, &FnMut(Ref) -> Ref) -> T {
-    fn transform<RF>(&mut self, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Ref {
-        (self)(item, &ref_transform)
+impl<T, U, F> ItemsTransformer<T, U> for F where F: FnMut(Ref, U, &Fn(Ref) -> Option<Ref>) -> T {
+    fn transform<RF>(&mut self, set_ref: Ref, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Option<Ref> {
+        (self)(set_ref, item, &ref_transform)
     }
 }
 
 struct Cell<T> {
-    item: Option<T>,
     serial: u64,
+    state: CellState<T>,
+}
+
+enum CellState<T> {
+    Regular { item: Option<T>, },
+    Reloc { item: T, reloc_index: usize, },
+    Moved { reloc_index: usize, },
 }
 
 #[cfg(test)]
@@ -241,6 +276,58 @@ mod test {
         let sample_table: HashSet<_> = inserted.iter().collect();
         for (set_ref, &item) in set.iter() {
             assert!(sample_table.contains(&(item, set_ref)));
+        }
+    }
+
+    #[test]
+    fn add_remove_consume_10000() {
+        let mut set_a: Set<u64> = Set::new();
+        let mut set_b: Set<u32> = Set::new();
+        let mut inserted = Vec::new();
+
+        let mut rng = rand::thread_rng();
+        for _ in 0 .. 10000 {
+            inserted.push((0, set_a.insert(rng.gen())));
+            inserted.push((1, set_b.insert(rng.gen())));
+        }
+        rng.shuffle(&mut inserted);
+        for _ in 0 .. 2500 {
+            match inserted.pop() {
+                Some((0, set_ref)) => {
+                    set_a.remove(set_ref).unwrap();
+                },
+                Some((1, set_ref)) => {
+                    set_b.remove(set_ref).unwrap();
+                },
+                Some((_, _)) =>
+                    unreachable!(),
+                None =>
+                    (),
+            }
+        }
+
+        let mut verify = HashMap::new();
+        let mut table = HashSet::new();
+        for (idx, set_ref) in inserted {
+            table.insert((idx, set_ref));
+            if idx == 0 {
+                verify.insert(set_ref, set_a.get(set_ref).unwrap().clone());
+            }
+        }
+
+        set_a.consume(set_b, |ref_b, item_b, ref_transform: &Fn(_) -> Option<_>| {
+            assert!(table.remove(&(1, ref_b)));
+            let ref_a = ref_transform(ref_b).unwrap();
+            table.insert((0, ref_a));
+            verify.insert(ref_a, item_b as u64);
+            item_b as u64
+        });
+
+        for (idx, ref_a) in table {
+            assert_eq!(idx, 0);
+            let item_a = set_a.get(ref_a);
+            let item_a_verify = verify.get(&ref_a);
+            assert_eq!(item_a, item_a_verify);
         }
     }
 
