@@ -32,6 +32,10 @@ impl<T> Forest1<T> {
         }
         target.nodes.consume(self.nodes, Transformer);
     }
+
+    pub fn local_iter(&self) -> impl Iterator<Item = (Ref, &T)> {
+        self.nodes.iter().map(|(set_ref, node)| (set_ref, &node.item))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -59,6 +63,11 @@ impl<T, R> Forest2<T, R> {
 
     pub fn external(&self, node_ref: R) -> Ref2<R> {
         Ref2::External(node_ref)
+    }
+
+    pub fn local_iter(&self) -> impl Iterator<Item = (Ref2<R>, &T)> {
+        self.local_nodes.iter()
+            .map(|(set_ref, node)| (Ref2::Local(set_ref), &node.item))
     }
 }
 
@@ -320,43 +329,53 @@ pub mod layer_access {
 #[macro_export]
 macro_rules! layers {
     { [$f:expr $(, $fs:expr),*].get($ref:expr) } => {
-        layers!(@rec layer_access::cons_get($f, layer_access::nil()), [$($fs)*].get($ref))
+        layers!(@rec ::forest::layer_access::cons_get($f, ::forest::layer_access::nil()), [$($fs)*].get($ref))
     };
     { @rec $a:expr, [].get($ref:expr) } => {
         ($a)($ref)
     };
     { @rec $a:expr, [$f:expr $(, $fs:expr),*].get($ref:expr) } => {
-        layers!(@rec layer_access::cons_get($f, $a), [$($fs)*].get($ref))
+        layers!(@rec ::forest::layer_access::cons_get($f, $a), [$($fs)*].get($ref))
     };
 
     { [$f:expr $(, $fs:expr),*].get_mut($ref:expr) } => {
-        layers!(@rec layer_access::cons_get_mut($f, layer_access::nil_mut()), [$($fs)*].get_mut($ref))
+        layers!(@rec ::forest::layer_access::cons_get_mut($f, ::forest::layer_access::nil_mut()), [$($fs)*].get_mut($ref))
     };
     { @rec $a:expr, [].get_mut($ref:expr) } => {
         ($a)($ref)
     };
     { @rec $a:expr, [$f:expr $(, $fs:expr),*].get_mut($ref:expr) } => {
-        layers!(@rec layer_access::cons_get_mut($f, $a), [$($fs)*].get_mut($ref))
+        layers!(@rec ::forest::layer_access::cons_get_mut($f, $a), [$($fs)*].get_mut($ref))
     };
 
     { [$f:expr $(, $fs:expr),*].make_node($parent_ref:expr, $item:expr) } => {
-        layers!(@rec $f, layer_access::nil(), [$($fs)*].make_node($parent_ref, $item))
+        layers!(@rec $f, ::forest::layer_access::nil(), [$($fs)*].make_node($parent_ref, $item))
     };
     { @rec $fe:expr, $a:expr, [].make_node($parent_ref:expr, $item:expr) } => {
         $fe.make_node($a, $parent_ref, $item)
     };
     { @rec $fe:expr, $a:expr, [$f:expr $(, $fs:expr),*].make_node($parent_ref:expr, $item:expr) } => {
-        layers!(@rec $f, layer_access::cons_get($fe, $a), [$($fs)*].make_node($parent_ref, $item))
+        layers!(@rec $f, ::forest::layer_access::cons_get($fe, $a), [$($fs)*].make_node($parent_ref, $item))
     };
 
     { [$f:expr $(, $fs:expr),*].towards_root_iter($ref:expr) } => {
-        layers!(@rec layer_access::cons_get($f, layer_access::nil()), [$($fs)*].towards_root_iter($ref))
+        layers!(@rec ::forest::layer_access::cons_get($f, ::forest::layer_access::nil()), [$($fs)*].towards_root_iter($ref))
     };
     { @rec $a:expr, [].towards_root_iter($ref:expr) } => {
         TowardsRootIter::new($a, $ref)
     };
     { @rec $a:expr, [$f:expr $(, $fs:expr),*].towards_root_iter($ref:expr) } => {
-        layers!(@rec layer_access::cons_get($f, $a), [$($fs)*].towards_root_iter($ref))
+        layers!(@rec ::forest::layer_access::cons_get($f, $a), [$($fs)*].towards_root_iter($ref))
+    };
+
+    { [$f:expr $(, $fs:expr),*].iter() } => {
+        layers!(@rec $f.local_iter(), [$($fs)*].iter())
+    };
+    { @rec $i:expr, [].iter() } => {
+        $i
+    };
+    { @rec $i:expr, [$f:expr $(, $fs:expr),*].iter() } => {
+        layers!(@rec $i.map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)).chain($f.local_iter()), [$($fs)*].iter())
     };
 }
 
@@ -465,19 +484,33 @@ mod test {
 
         let iter = layers!([&forest1, &forest2].towards_root_iter(child_b));
         assert_eq!(iter.map(|node| node.item).collect::<Vec<_>>(), vec![&"child b", &"other child", &"root"]);
+
+        let iter = layers!([&forest1, &forest2].iter()).map(|p| p.1);
+        let mut items: Vec<_> = iter.collect();
+        items.sort();
+        assert_eq!(items, vec![&"child b", &"other child", &"root", &"root2"]);
     }
 
     #[test]
-    fn merge_forest1() {
+    fn merge_aflat_forest1() {
         let mut forest1_a = Forest1::new();
         let root_a = forest1_a.make_root("root a");
-        let child_a_a = layers!([&mut forest1_a].make_node(root_a, "child_a a"));
-        let child_b_a = layers!([&mut forest1_a].make_node(root_a, "child_b a"));
+        let _child_a_a = layers!([&mut forest1_a].make_node(root_a, "child_a a"));
+        let _child_b_a = layers!([&mut forest1_a].make_node(root_a, "child_b a"));
 
         let mut forest1_b = Forest1::new();
         let root_b = forest1_b.make_root("root b");
         let child_a_b = layers!([&mut forest1_b].make_node(root_b, "child_a b"));
-        let child_b_b = layers!([&mut forest1_b].make_node(child_a_b, "child_b b"));
+        let _child_b_b = layers!([&mut forest1_b].make_node(child_a_b, "child_b b"));
 
+        forest1_b.merge_aflat(&mut forest1_a);
+        let mut items: Vec<_> = layers!([&forest1_a].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child_a a", &"child_a b", &"child_b a", &"child_b b", &"root a", &"root b"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.into_iter().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest1_a].get(set_ref)).map(|node| node.item), Some(item));
+        }
     }
 }
