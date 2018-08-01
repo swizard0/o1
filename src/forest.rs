@@ -348,6 +348,16 @@ macro_rules! layers {
     { @rec $fe:expr, $a:expr, [$f:expr $(, $fs:expr),*].make_node($parent_ref:expr, $item:expr) } => {
         layers!(@rec $f, layer_access::cons_get($fe, $a), [$($fs)*].make_node($parent_ref, $item))
     };
+
+    { [$f:expr $(, $fs:expr),*].towards_root_iter($ref:expr) } => {
+        layers!(@rec layer_access::cons_get($f, layer_access::nil()), [$($fs)*].towards_root_iter($ref))
+    };
+    { @rec $a:expr, [].towards_root_iter($ref:expr) } => {
+        TowardsRootIter::new($a, $ref)
+    };
+    { @rec $a:expr, [$f:expr $(, $fs:expr),*].towards_root_iter($ref:expr) } => {
+        layers!(@rec layer_access::cons_get($f, $a), [$($fs)*].towards_root_iter($ref))
+    };
 }
 
 pub struct TowardsRootIter<R, A> {
@@ -444,11 +454,17 @@ mod test {
         assert_eq!(layers!([&forest1, &forest2].get(root2)).map(|node| node.item), Some(&"root2"));
 
         let root_ext = forest2.external(root);
-        let child = layers!([&forest1, &mut forest2].make_node(root_ext, "child"));
-        assert_eq!(layers!([&forest1, &forest2].get(child)).map(|node| node.item), Some(&"child"));
+        let child_a = layers!([&forest1, &mut forest2].make_node(root_ext, "child a"));
+        assert_eq!(layers!([&forest1, &forest2].get(child_a)).map(|node| node.item), Some(&"child a"));
 
-        layers!([&mut forest1, &mut forest2].get_mut(child)).map(|node| *node.item = "other child");
-        assert_eq!(layers!([&forest1, &forest2].get(child)).map(|node| node.item), Some(&"other child"));
+        layers!([&mut forest1, &mut forest2].get_mut(child_a)).map(|node| *node.item = "other child");
+        assert_eq!(layers!([&forest1, &forest2].get(child_a)).map(|node| node.item), Some(&"other child"));
+
+        let child_b = layers!([&forest1, &mut forest2].make_node(child_a, "child b"));
+        assert_eq!(layers!([&forest1, &forest2].get(child_b)).map(|node| node.item), Some(&"child b"));
+
+        let iter = layers!([&forest1, &forest2].towards_root_iter(child_b));
+        assert_eq!(iter.map(|node| node.item).collect::<Vec<_>>(), vec![&"child b", &"other child", &"root"]);
     }
 
     #[test]
