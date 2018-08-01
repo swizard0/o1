@@ -1,4 +1,4 @@
-use super::set::{Set, Ref};
+use super::set::{Set, Ref, ItemsTransformer};
 
 pub struct Node<T, R> {
     pub item: T,
@@ -21,6 +21,16 @@ impl<T> Forest1<T> {
         Forest1 {
             nodes: Set::with_capacity(capacity),
         }
+    }
+
+    pub fn merge_aflat(self, target: &mut Forest1<T>) {
+        struct Transformer;
+        impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref>> for Transformer {
+            fn transform<RF>(&mut self, _ref: Ref, node: Node<T, Ref>, ref_transform: RF) -> Node<T, Ref> where RF: Fn(Ref) -> Option<Ref> {
+                Node { parent: node.parent.and_then(ref_transform), ..node }
+            }
+        }
+        target.nodes.consume(self.nodes, Transformer);
     }
 }
 
@@ -49,6 +59,90 @@ impl<T, R> Forest2<T, R> {
 
     pub fn external(&self, node_ref: R) -> Ref2<R> {
         Ref2::External(node_ref)
+    }
+}
+
+impl<T, R> Forest2<T, Ref2<R>> {
+    pub fn merge_aflat(self, target: &mut Forest2<T, Ref2<R>>) {
+        struct Transformer;
+        impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<R>>> for Transformer {
+            fn transform<RF>(
+                &mut self,
+                _ref: Ref,
+                node: Node<T, Ref2<R>>,
+                ref_transform: RF,
+            )
+                -> Node<T, Ref2<R>>
+            where RF: Fn(Ref) -> Option<Ref>
+            {
+                let parent = match node.parent {
+                    Some(Ref2::Local(local_ref)) =>
+                        ref_transform(local_ref).map(Ref2::Local),
+                    Some(Ref2::External(external_ref)) =>
+                        Some(Ref2::External(external_ref)),
+                    None =>
+                        None,
+                };
+                Node { parent, ..node }
+            }
+        }
+        target.local_nodes.consume(self.local_nodes, Transformer);
+    }
+}
+
+impl<T> Forest2<T, Ref> {
+    pub fn merge_down(self, target: &mut Forest1<T>) {
+        struct Transformer;
+        impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref2<Ref>>> for Transformer {
+            fn transform<RF>(
+                &mut self,
+                _ref: Ref,
+                node: Node<T, Ref2<Ref>>,
+                ref_transform: RF,
+            )
+                -> Node<T, Ref>
+            where RF: Fn(Ref) -> Option<Ref>
+            {
+                let parent = match node.parent {
+                    Some(Ref2::Local(local_ref)) =>
+                        ref_transform(local_ref),
+                    Some(Ref2::External(external_ref)) =>
+                        Some(external_ref),
+                    None =>
+                        None,
+                };
+                Node { parent, item: node.item, depth: node.depth, }
+            }
+        }
+        target.nodes.consume(self.local_nodes, Transformer);
+    }
+}
+
+impl<T, R> Forest2<T, Ref2<Ref2<R>>> {
+    pub fn merge_down(self, target: &mut Forest2<T, Ref2<R>>) {
+        struct Transformer;
+        impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<Ref2<R>>>> for Transformer {
+            fn transform<RF>(
+                &mut self,
+                _ref: Ref,
+                node: Node<T, Ref2<Ref2<R>>>,
+                ref_transform: RF,
+            )
+                -> Node<T, Ref2<R>>
+            where RF: Fn(Ref) -> Option<Ref>
+            {
+                let parent = match node.parent {
+                    Some(Ref2::Local(local_ref)) =>
+                        ref_transform(local_ref).map(Ref2::Local),
+                    Some(Ref2::External(external_ref)) =>
+                        Some(external_ref),
+                    None =>
+                        None,
+                };
+                Node { parent, item: node.item, depth: node.depth, }
+            }
+        }
+        target.local_nodes.consume(self.local_nodes, Transformer);
     }
 }
 
@@ -355,5 +449,19 @@ mod test {
 
         layers!([&mut forest1, &mut forest2].get_mut(child)).map(|node| *node.item = "other child");
         assert_eq!(layers!([&forest1, &forest2].get(child)).map(|node| node.item), Some(&"other child"));
+    }
+
+    #[test]
+    fn merge_forest1() {
+        let mut forest1_a = Forest1::new();
+        let root_a = forest1_a.make_root("root a");
+        let child_a_a = layers!([&mut forest1_a].make_node(root_a, "child_a a"));
+        let child_b_a = layers!([&mut forest1_a].make_node(root_a, "child_b a"));
+
+        let mut forest1_b = Forest1::new();
+        let root_b = forest1_b.make_root("root b");
+        let child_a_b = layers!([&mut forest1_b].make_node(root_b, "child_a b"));
+        let child_b_b = layers!([&mut forest1_b].make_node(child_a_b, "child_b b"));
+
     }
 }
