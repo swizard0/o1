@@ -98,50 +98,6 @@ impl<T> Set<T> {
         }
     }
 
-    pub fn consume<U, F>(&mut self, mut other_set: Set<U>, mut items_transformer: F) where F: ItemsTransformer<T, U> {
-        // first add as many empty cells in `self` as in `other_set`
-        // and replace `other_set`'s cells serials with new index
-        self.cells.reserve(other_set.len());
-        for other_cell in other_set.cells.iter_mut() {
-            let taken_state = mem::replace(&mut other_cell.state, CellState::Regular { item: None, });
-            if let CellState::Regular { item: Some(other_item), } = taken_state {
-                let set_ref = self.insert_empty();
-                other_cell.state = CellState::Reloc {
-                    item: other_item,
-                    reloc_index: set_ref.index,
-                };
-            }
-        }
-
-        // perform second pass with actual items transferring and transforming
-        for other_cell_index in 0 .. other_set.cells.len() {
-            let taken_state = mem::replace(&mut other_set.cells[other_cell_index].state, CellState::Regular { item: None, });
-            if let CellState::Reloc { item: other_item, reloc_index, } = taken_state {
-                other_set.cells[other_cell_index].state = CellState::Moved { reloc_index, };
-                let other_set_ref = Ref {
-                    index: other_cell_index,
-                    serial: other_set.cells[other_cell_index].serial,
-                    set_uid: other_set.uid,
-                };
-                let self_item = items_transformer.transform(other_set_ref, other_item, |transform_ref| {
-                    match other_set.cells.get(transform_ref.index) {
-                        Some(&Cell { serial, state: CellState::Moved { reloc_index, }, }) |
-                        Some(&Cell { serial, state: CellState::Reloc { reloc_index, .. }, })
-                            if other_set.uid == transform_ref.set_uid && serial == transform_ref.serial =>
-                            Some(Ref {
-                                index: reloc_index,
-                                serial: self.cells[reloc_index].serial,
-                                set_uid: self.uid,
-                            }),
-                        _ =>
-                            None,
-                    }
-                });
-                self.cells[reloc_index].state = CellState::Regular { item: Some(self_item), };
-            }
-        }
-    }
-
     pub fn merge<U>(mut self, mut source_set: Set<U>) -> SetsInitMerger<U, T> {
         self.cells.reserve(source_set.len());
         for source_cell in source_set.cells.iter_mut() {
@@ -206,16 +162,6 @@ impl<T> Set<T> {
         };
         self.len += 1;
         Ref { index, serial, set_uid: self.uid, }
-    }
-}
-
-pub trait ItemsTransformer<T, U> {
-    fn transform<RF>(&mut self, set_ref: Ref, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Option<Ref>;
-}
-
-impl<T, U, F> ItemsTransformer<T, U> for F where F: FnMut(Ref, U, &Fn(Ref) -> Option<Ref>) -> T {
-    fn transform<RF>(&mut self, set_ref: Ref, item: U, ref_transform: RF) -> T where RF: Fn(Ref) -> Option<Ref> {
-        (self)(set_ref, item, &ref_transform)
     }
 }
 

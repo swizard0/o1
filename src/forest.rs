@@ -1,4 +1,16 @@
-use super::set::{Set, Ref, ItemsTransformer};
+use super::{
+    set::{
+        Set,
+        Ref,
+        SetsInitMerger,
+        SetsInProgressMerger,
+    },
+    merge::{
+        MergeState,
+        InitMerger,
+        InProgressMerger,
+    },
+};
 
 pub struct Node<T, R> {
     pub item: T,
@@ -23,15 +35,19 @@ impl<T> Forest1<T> {
         }
     }
 
-    pub fn merge_aflat(self, target: &mut Forest1<T>) {
-        struct Transformer;
-        impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref>> for Transformer {
-            fn transform<RF>(&mut self, _ref: Ref, node: Node<T, Ref>, ref_transform: RF) -> Node<T, Ref> where RF: Fn(Ref) -> Option<Ref> {
-                Node { parent: node.parent.and_then(ref_transform), ..node }
-            }
-        }
-        target.nodes.consume(self.nodes, Transformer);
+    pub fn merge_aflat(self, target: Forest1<T>) -> Forest1InitMerger<T> {
+        Forest1InitMerger(target.nodes.merge(self.nodes))
     }
+
+    // pub fn merge_aflat(self, target: &mut Forest1<T>) {
+    //     struct Transformer;
+    //     impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref>> for Transformer {
+    //         fn transform<RF>(&mut self, _ref: Ref, node: Node<T, Ref>, ref_transform: RF) -> Node<T, Ref> where RF: Fn(Ref) -> Option<Ref> {
+    //             Node { parent: node.parent.and_then(ref_transform), ..node }
+    //         }
+    //     }
+    //     target.nodes.consume(self.nodes, Transformer);
+    // }
 
     pub fn local_iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         self.nodes.iter().map(|(set_ref, node)| (set_ref, &node.item))
@@ -71,89 +87,89 @@ impl<T, R> Forest2<T, R> {
     }
 }
 
-impl<T, R> Forest2<T, Ref2<R>> {
-    pub fn merge_aflat(self, target: &mut Forest2<T, Ref2<R>>) {
-        struct Transformer;
-        impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<R>>> for Transformer {
-            fn transform<RF>(
-                &mut self,
-                _ref: Ref,
-                node: Node<T, Ref2<R>>,
-                ref_transform: RF,
-            )
-                -> Node<T, Ref2<R>>
-            where RF: Fn(Ref) -> Option<Ref>
-            {
-                let parent = match node.parent {
-                    Some(Ref2::Local(local_ref)) =>
-                        ref_transform(local_ref).map(Ref2::Local),
-                    Some(Ref2::External(external_ref)) =>
-                        Some(Ref2::External(external_ref)),
-                    None =>
-                        None,
-                };
-                Node { parent, ..node }
-            }
-        }
-        target.local_nodes.consume(self.local_nodes, Transformer);
-    }
-}
+// impl<T, R> Forest2<T, Ref2<R>> {
+//     pub fn merge_aflat(self, target: &mut Forest2<T, Ref2<R>>) {
+//         struct Transformer;
+//         impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<R>>> for Transformer {
+//             fn transform<RF>(
+//                 &mut self,
+//                 _ref: Ref,
+//                 node: Node<T, Ref2<R>>,
+//                 ref_transform: RF,
+//             )
+//                 -> Node<T, Ref2<R>>
+//             where RF: Fn(Ref) -> Option<Ref>
+//             {
+//                 let parent = match node.parent {
+//                     Some(Ref2::Local(local_ref)) =>
+//                         ref_transform(local_ref).map(Ref2::Local),
+//                     Some(Ref2::External(external_ref)) =>
+//                         Some(Ref2::External(external_ref)),
+//                     None =>
+//                         None,
+//                 };
+//                 Node { parent, ..node }
+//             }
+//         }
+//         target.local_nodes.consume(self.local_nodes, Transformer);
+//     }
+// }
 
-impl<T> Forest2<T, Ref> {
-    pub fn merge_down(self, target: &mut Forest1<T>) {
-        struct Transformer;
-        impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref2<Ref>>> for Transformer {
-            fn transform<RF>(
-                &mut self,
-                _ref: Ref,
-                node: Node<T, Ref2<Ref>>,
-                ref_transform: RF,
-            )
-                -> Node<T, Ref>
-            where RF: Fn(Ref) -> Option<Ref>
-            {
-                let parent = match node.parent {
-                    Some(Ref2::Local(local_ref)) =>
-                        ref_transform(local_ref),
-                    Some(Ref2::External(external_ref)) =>
-                        Some(external_ref),
-                    None =>
-                        None,
-                };
-                Node { parent, item: node.item, depth: node.depth, }
-            }
-        }
-        target.nodes.consume(self.local_nodes, Transformer);
-    }
-}
+// impl<T> Forest2<T, Ref> {
+//     pub fn merge_down(self, target: &mut Forest1<T>) {
+//         struct Transformer;
+//         impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref2<Ref>>> for Transformer {
+//             fn transform<RF>(
+//                 &mut self,
+//                 _ref: Ref,
+//                 node: Node<T, Ref2<Ref>>,
+//                 ref_transform: RF,
+//             )
+//                 -> Node<T, Ref>
+//             where RF: Fn(Ref) -> Option<Ref>
+//             {
+//                 let parent = match node.parent {
+//                     Some(Ref2::Local(local_ref)) =>
+//                         ref_transform(local_ref),
+//                     Some(Ref2::External(external_ref)) =>
+//                         Some(external_ref),
+//                     None =>
+//                         None,
+//                 };
+//                 Node { parent, item: node.item, depth: node.depth, }
+//             }
+//         }
+//         target.nodes.consume(self.local_nodes, Transformer);
+//     }
+// }
 
-impl<T, R> Forest2<T, Ref2<Ref2<R>>> {
-    pub fn merge_down(self, target: &mut Forest2<T, Ref2<R>>) {
-        struct Transformer;
-        impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<Ref2<R>>>> for Transformer {
-            fn transform<RF>(
-                &mut self,
-                _ref: Ref,
-                node: Node<T, Ref2<Ref2<R>>>,
-                ref_transform: RF,
-            )
-                -> Node<T, Ref2<R>>
-            where RF: Fn(Ref) -> Option<Ref>
-            {
-                let parent = match node.parent {
-                    Some(Ref2::Local(local_ref)) =>
-                        ref_transform(local_ref).map(Ref2::Local),
-                    Some(Ref2::External(external_ref)) =>
-                        Some(external_ref),
-                    None =>
-                        None,
-                };
-                Node { parent, item: node.item, depth: node.depth, }
-            }
-        }
-        target.local_nodes.consume(self.local_nodes, Transformer);
-    }
-}
+// impl<T, R> Forest2<T, Ref2<Ref2<R>>> {
+//     pub fn merge_down(self, target: &mut Forest2<T, Ref2<R>>) {
+//         struct Transformer;
+//         impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<Ref2<R>>>> for Transformer {
+//             fn transform<RF>(
+//                 &mut self,
+//                 _ref: Ref,
+//                 node: Node<T, Ref2<Ref2<R>>>,
+//                 ref_transform: RF,
+//             )
+//                 -> Node<T, Ref2<R>>
+//             where RF: Fn(Ref) -> Option<Ref>
+//             {
+//                 let parent = match node.parent {
+//                     Some(Ref2::Local(local_ref)) =>
+//                         ref_transform(local_ref).map(Ref2::Local),
+//                     Some(Ref2::External(external_ref)) =>
+//                         Some(external_ref),
+//                     None =>
+//                         None,
+//                 };
+//                 Node { parent, item: node.item, depth: node.depth, }
+//             }
+//         }
+//         target.local_nodes.consume(self.local_nodes, Transformer);
+//     }
+// }
 
 pub trait Forest<T> {
     type Ref;
@@ -404,6 +420,60 @@ impl<'a, T: 'a, R, A> Iterator for TowardsRootIter<R, A> where R: Clone, A: Fn(R
     }
 }
 
+pub struct Forest1InitMerger<T>(SetsInitMerger<Node<T, Ref>, Node<T, Ref>>);
+
+pub struct Forest1InProgressMerger<T> {
+    inner_merger: SetsInProgressMerger<Node<T, Ref>, Node<T, Ref>>,
+    parent: Option<Ref>,
+    depth: usize,
+}
+
+impl<T> InitMerger<Ref, Ref, T, Forest1InProgressMerger<T>, Forest1<T>> for Forest1InitMerger<T> {
+    fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
+        self.0.ref_transform(source_ref)
+    }
+
+    fn merge_start(self) -> MergeState<Ref, T, Forest1InProgressMerger<T>, Forest1<T>> {
+        Forest1InProgressMerger::make_state(self.0.merge_start())
+    }
+}
+
+impl<T> Forest1InProgressMerger<T> {
+    fn make_state(
+        inner_state: MergeState<Ref, Node<T, Ref>, SetsInProgressMerger<Node<T, Ref>, Node<T, Ref>>, Set<Node<T, Ref>>>,
+    ) -> MergeState<Ref, T, Forest1InProgressMerger<T>, Forest1<T>>
+    {
+        match inner_state {
+            MergeState::Continue { item_ref, item: node, next, } =>
+                MergeState::Continue {
+                    item_ref,
+                    item: node.item,
+                    next: Forest1InProgressMerger {
+                        inner_merger: next,
+                        parent: node.parent,
+                        depth: node.depth,
+                    },
+                },
+            MergeState::Finish(nodes) =>
+                MergeState::Finish(Forest1 { nodes, }),
+        }
+    }
+}
+
+impl<T> InProgressMerger<Ref, Ref, T, T, Forest1InProgressMerger<T>, Forest1<T>> for Forest1InProgressMerger<T> {
+    fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
+        self.inner_merger.ref_transform(source_ref)
+    }
+
+    fn proceed(self, transformed_item: T) -> MergeState<Ref, T, Forest1InProgressMerger<T>, Forest1<T>> {
+        let node = Node {
+            item: transformed_item,
+            parent: self.parent.and_then(|parent_ref| self.inner_merger.ref_transform(parent_ref)),
+            depth: self.depth,
+        };
+        Forest1InProgressMerger::make_state(self.inner_merger.proceed(node))
+    }
+}
 
 #[cfg(test)]
 mod test {
