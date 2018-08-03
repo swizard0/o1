@@ -6,6 +6,11 @@ use rayon::iter::{
     IntoParallelRefIterator,
     IndexedParallelIterator,
 };
+use super::merge::{
+    MergeState,
+    InitMerger,
+    InProgressMerger,
+};
 
 pub static UID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
@@ -137,6 +142,24 @@ impl<T> Set<T> {
         }
     }
 
+    pub fn merge<U>(mut self, mut source_set: Set<U>) -> SetsInitMerger<U, T> {
+        self.cells.reserve(source_set.len());
+        for source_cell in source_set.cells.iter_mut() {
+            let taken_state = mem::replace(&mut source_cell.state, CellState::Regular { item: None, });
+            if let CellState::Regular { item: Some(source_item), } = taken_state {
+                let set_ref = self.insert_empty();
+                source_cell.state = CellState::Reloc {
+                    item: source_item,
+                    reloc_index: set_ref.index,
+                };
+            }
+        }
+        SetsInitMerger {
+            source: source_set,
+            target: self,
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         let set_uid = self.uid;
         self.cells.iter()
@@ -207,10 +230,86 @@ enum CellState<T> {
     Moved { reloc_index: usize, },
 }
 
+pub struct SetsInitMerger<SI, TI> {
+    source: Set<SI>,
+    target: Set<TI>,
+}
+
+pub struct SetsInProgressMerger<SI, TI> {
+    source: Set<SI>,
+    target: Set<TI>,
+    next_index: usize,
+    reloc_index: usize,
+}
+
+impl<SI, TI> InitMerger<Ref, Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> for SetsInitMerger<SI, TI> {
+    fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
+        transform_ref(&self.target, &self.source, source_ref)
+    }
+
+    fn merge_start(self) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+        SetsInProgressMerger::make_state(self.source, self.target, 0)
+    }
+}
+
+impl<SI, TI> SetsInProgressMerger<SI, TI> {
+    fn make_state(mut source_set: Set<SI>, target_set: Set<TI>, index: usize) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+        for source_cell_index in index .. source_set.cells.len() {
+            let taken_state =
+                mem::replace(&mut source_set.cells[source_cell_index].state, CellState::Regular { item: None, });
+            if let CellState::Reloc { item, reloc_index, } = taken_state {
+                source_set.cells[source_cell_index].state = CellState::Moved { reloc_index, };
+                let item_ref = Ref {
+                    index: source_cell_index,
+                    serial: source_set.cells[source_cell_index].serial,
+                    set_uid: source_set.uid,
+                };
+                return MergeState::Continue {
+                    item_ref, item,
+                    next: SetsInProgressMerger {
+                        source: source_set,
+                        target: target_set,
+                        next_index: source_cell_index + 1,
+                        reloc_index,
+                    },
+                };
+            }
+        }
+        MergeState::Finish(target_set)
+    }
+}
+
+impl<SI, TI> InProgressMerger<Ref, Ref, SI, TI, SetsInProgressMerger<SI, TI>, Set<TI>> for SetsInProgressMerger<SI, TI> {
+    fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
+        transform_ref(&self.target, &self.source, source_ref)
+    }
+
+    fn proceed(mut self, transformed_item: TI) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+        self.target.cells[self.reloc_index].state = CellState::Regular { item: Some(transformed_item), };
+        SetsInProgressMerger::make_state(self.source, self.target, self.next_index)
+    }
+}
+
+fn transform_ref<T, U>(target_set: &Set<T>, source_set: &Set<U>, source_ref: Ref) -> Option<Ref> {
+    match source_set.cells.get(source_ref.index) {
+        Some(&Cell { serial, state: CellState::Moved { reloc_index, }, }) |
+        Some(&Cell { serial, state: CellState::Reloc { reloc_index, .. }, })
+            if source_set.uid == source_ref.set_uid && serial == source_ref.serial =>
+            Some(Ref {
+                index: reloc_index,
+                serial: target_set.cells[reloc_index].serial,
+                set_uid: target_set.uid,
+            }),
+        _ =>
+            None,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::{HashMap, HashSet};
     use rand::{self, Rng};
+    use super::super::merge::{MergeState, InitMerger, InProgressMerger};
     use super::Set;
 
     #[test]
@@ -315,13 +414,22 @@ mod test {
             }
         }
 
-        set_a.consume(set_b, |ref_b, item_b, ref_transform: &Fn(_) -> Option<_>| {
-            assert!(table.remove(&(1, ref_b)));
-            let ref_a = ref_transform(ref_b).unwrap();
-            table.insert((0, ref_a));
-            verify.insert(ref_a, item_b as u64);
-            item_b as u64
-        });
+        let merge_init = set_a.merge(set_b);
+        let mut merge_step = merge_init.merge_start();
+        let set_a = loop {
+            match merge_step {
+                MergeState::Finish(set) =>
+                    break set,
+                MergeState::Continue { item_ref, item, next, } => {
+                    assert!(table.remove(&(1, item_ref)));
+                    let transformed_item = item as u64;
+                    let transformed_ref = next.ref_transform(item_ref).unwrap();
+                    table.insert((0, transformed_ref));
+                    verify.insert(transformed_ref, transformed_item);
+                    merge_step = next.proceed(transformed_item);
+                },
+            }
+        };
 
         for (idx, ref_a) in table {
             assert_eq!(idx, 0);
