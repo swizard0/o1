@@ -58,6 +58,11 @@ impl<T> Set<T> {
         self.serial
     }
 
+    pub fn clear(&mut self) {
+        self.cells.clear();
+        self.free.clear();
+    }
+
     pub fn insert(&mut self, item: T) -> Ref {
         let set_ref = self.insert_empty();
         self.cells[set_ref.index].state =
@@ -188,18 +193,18 @@ pub struct SetsInProgressMerger<SI, TI> {
     reloc_index: usize,
 }
 
-impl<SI, TI> InitMerger<Ref, Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> for SetsInitMerger<SI, TI> {
+impl<SI, TI> InitMerger<Ref, Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>, Set<SI>> for SetsInitMerger<SI, TI> {
     fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
         transform_ref(&self.target, &self.source, source_ref)
     }
 
-    fn merge_start(self) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+    fn merge_start(self) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>, Set<SI>> {
         SetsInProgressMerger::make_state(self.source, self.target, 0)
     }
 }
 
 impl<SI, TI> SetsInProgressMerger<SI, TI> {
-    fn make_state(mut source_set: Set<SI>, target_set: Set<TI>, index: usize) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+    fn make_state(mut source_set: Set<SI>, target_set: Set<TI>, index: usize) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>, Set<SI>> {
         for source_cell_index in index .. source_set.cells.len() {
             let taken_state =
                 mem::replace(&mut source_set.cells[source_cell_index].state, CellState::Regular { item: None, });
@@ -221,16 +226,17 @@ impl<SI, TI> SetsInProgressMerger<SI, TI> {
                 };
             }
         }
-        MergeState::Finish(target_set)
+        source_set.clear();
+        MergeState::Finish { merged: target_set, empty: source_set, }
     }
 }
 
-impl<SI, TI> InProgressMerger<Ref, Ref, SI, TI, SetsInProgressMerger<SI, TI>, Set<TI>> for SetsInProgressMerger<SI, TI> {
+impl<SI, TI> InProgressMerger<Ref, Ref, SI, TI, SetsInProgressMerger<SI, TI>, Set<TI>, Set<SI>> for SetsInProgressMerger<SI, TI> {
     fn ref_transform(&self, source_ref: Ref) -> Option<Ref> {
         transform_ref(&self.target, &self.source, source_ref)
     }
 
-    fn proceed(mut self, transformed_item: TI) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>> {
+    fn proceed(mut self, transformed_item: TI) -> MergeState<Ref, SI, SetsInProgressMerger<SI, TI>, Set<TI>, Set<SI>> {
         self.target.cells[self.reloc_index].state = CellState::Regular { item: Some(transformed_item), };
         SetsInProgressMerger::make_state(self.source, self.target, self.next_index)
     }
