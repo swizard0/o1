@@ -39,16 +39,6 @@ impl<T> Forest1<T> {
         Forest1InitMerger(target.nodes.merge(self.nodes))
     }
 
-    // pub fn merge_aflat(self, target: &mut Forest1<T>) {
-    //     struct Transformer;
-    //     impl<T> ItemsTransformer<Node<T, Ref>, Node<T, Ref>> for Transformer {
-    //         fn transform<RF>(&mut self, _ref: Ref, node: Node<T, Ref>, ref_transform: RF) -> Node<T, Ref> where RF: Fn(Ref) -> Option<Ref> {
-    //             Node { parent: node.parent.and_then(ref_transform), ..node }
-    //         }
-    //     }
-    //     target.nodes.consume(self.nodes, Transformer);
-    // }
-
     pub fn local_iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         self.nodes.iter().map(|(set_ref, node)| (set_ref, &node.item))
     }
@@ -87,33 +77,11 @@ impl<T, R> Forest2<T, R> {
     }
 }
 
-// impl<T, R> Forest2<T, Ref2<R>> {
-//     pub fn merge_aflat(self, target: &mut Forest2<T, Ref2<R>>) {
-//         struct Transformer;
-//         impl<T, R> ItemsTransformer<Node<T, Ref2<R>>, Node<T, Ref2<R>>> for Transformer {
-//             fn transform<RF>(
-//                 &mut self,
-//                 _ref: Ref,
-//                 node: Node<T, Ref2<R>>,
-//                 ref_transform: RF,
-//             )
-//                 -> Node<T, Ref2<R>>
-//             where RF: Fn(Ref) -> Option<Ref>
-//             {
-//                 let parent = match node.parent {
-//                     Some(Ref2::Local(local_ref)) =>
-//                         ref_transform(local_ref).map(Ref2::Local),
-//                     Some(Ref2::External(external_ref)) =>
-//                         Some(Ref2::External(external_ref)),
-//                     None =>
-//                         None,
-//                 };
-//                 Node { parent, ..node }
-//             }
-//         }
-//         target.local_nodes.consume(self.local_nodes, Transformer);
-//     }
-// }
+impl<T, R> Forest2<T, R> {
+    pub fn merge_aflat(self, target: Forest2<T, R>) -> Forest2AflatInitMerger<T, R> {
+        Forest2AflatInitMerger(target.local_nodes.merge(self.local_nodes))
+    }
+}
 
 // impl<T> Forest2<T, Ref> {
 //     pub fn merge_down(self, target: &mut Forest1<T>) {
@@ -474,6 +442,79 @@ impl<T> InProgressMerger<Ref, Ref, T, T, Forest1InProgressMerger<T>, Forest1<T>>
         Forest1InProgressMerger::make_state(self.inner_merger.proceed(node))
     }
 }
+
+pub struct Forest2AflatInitMerger<T, R>(SetsInitMerger<Node<T, Ref2<R>>, Node<T, Ref2<R>>>);
+
+pub struct Forest2AflatInProgressMerger<T, R> {
+    inner_merger: SetsInProgressMerger<Node<T, Ref2<R>>, Node<T, Ref2<R>>>,
+    parent: Option<Ref2<R>>,
+    depth: usize,
+}
+
+impl<T, R> InitMerger<Ref2<R>, Ref2<R>, T, Forest2AflatInProgressMerger<T, R>, Forest2<T, R>> for Forest2AflatInitMerger<T, R> {
+    fn ref_transform(&self, source_ref: Ref2<R>) -> Option<Ref2<R>> {
+        match source_ref {
+            Ref2::Local(local_ref) =>
+                self.0.ref_transform(local_ref).map(Ref2::Local),
+            Ref2::External(external_ref) =>
+                Some(Ref2::External(external_ref)),
+        }
+    }
+
+    fn merge_start(self) -> MergeState<Ref2<R>, T, Forest2AflatInProgressMerger<T, R>, Forest2<T, R>> {
+        Forest2AflatInProgressMerger::make_state(self.0.merge_start())
+    }
+}
+
+impl<T, R> Forest2AflatInProgressMerger<T, R> {
+    fn make_state(
+        inner_state: MergeState<Ref, Node<T, Ref2<R>>, SetsInProgressMerger<Node<T, Ref2<R>>, Node<T, Ref2<R>>>, Set<Node<T, Ref2<R>>>>,
+    ) -> MergeState<Ref2<R>, T, Forest2AflatInProgressMerger<T, R>, Forest2<T, R>>
+    {
+        match inner_state {
+            MergeState::Continue { item_ref, item: node, next, } =>
+                MergeState::Continue {
+                    item_ref: Ref2::Local(item_ref),
+                    item: node.item,
+                    next: Forest2AflatInProgressMerger {
+                        inner_merger: next,
+                        parent: node.parent,
+                        depth: node.depth,
+                    },
+                },
+            MergeState::Finish(local_nodes) =>
+                MergeState::Finish(Forest2 { local_nodes, }),
+        }
+    }
+}
+
+impl<T, R> InProgressMerger<Ref2<R>, Ref2<R>, T, T, Forest2AflatInProgressMerger<T, R>, Forest2<T, R>> for Forest2AflatInProgressMerger<T, R> {
+    fn ref_transform(&self, source_ref: Ref2<R>) -> Option<Ref2<R>> {
+        match source_ref {
+            Ref2::Local(local_ref) =>
+                self.inner_merger.ref_transform(local_ref).map(Ref2::Local),
+            Ref2::External(external_ref) =>
+                Some(Ref2::External(external_ref)),
+        }
+    }
+
+    fn proceed(self, transformed_item: T) -> MergeState<Ref2<R>, T, Forest2AflatInProgressMerger<T, R>, Forest2<T, R>> {
+        let node = Node {
+            item: transformed_item,
+            parent: match self.parent {
+                Some(Ref2::Local(local_ref)) =>
+                    self.inner_merger.ref_transform(local_ref).map(Ref2::Local),
+                Some(Ref2::External(external_ref)) =>
+                    Some(Ref2::External(external_ref)),
+                None =>
+                    None,
+            },
+            depth: self.depth,
+        };
+        Forest2AflatInProgressMerger::make_state(self.inner_merger.proceed(node))
+    }
+}
+
 
 #[cfg(test)]
 mod test {
