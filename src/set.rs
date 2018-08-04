@@ -370,8 +370,8 @@ mod test {
         let mut merge_step = merge_init.merge_start();
         let set_a = loop {
             match merge_step {
-                MergeState::Finish(set) =>
-                    break set,
+                MergeState::Finish { merged, .. } =>
+                    break merged,
                 MergeState::Continue { item_ref, item, next, } => {
                     assert!(table.remove(&(1, item_ref)));
                     let transformed_item = item as u64;
