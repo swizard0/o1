@@ -257,27 +257,14 @@ macro_rules! layers {
             .chain(layers!([$($fs),*].iter()).map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)))
     };
 
-
-    // { [$f:expr $(, $fs:expr)*].iter() } => {
-    //     layers!(@rec $f.local_iter(), [$($fs),*].iter())
-    // };
-    // { @rec $i:expr, [].iter() } => {
-    //     $i
-    // };
-    // { @rec $i:expr, [$f:expr $(, $fs:expr)*].iter() } => {
-    //     layers!(@rec $i.map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)).chain($f.local_iter()), [$($fs),*].iter())
-    // };
-
-    // // [&forest].par_iter()
-    // { [$f:expr $(, $fs:expr)*].par_iter() } => {
-    //     layers!(@rec $f.local_par_iter(), [$($fs),*].par_iter())
-    // };
-    // { @rec $i:expr, [].par_iter() } => {
-    //     $i
-    // };
-    // { @rec $i:expr, [$f:expr $(, $fs:expr)*].par_iter() } => {
-    //     layers!(@rec $i.map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)).chain($f.local_par_iter()), [$($fs),*].par_iter())
-    // };
+    // [&forest].par_iter()
+    { [$f:expr].par_iter() } => {
+        ::forest::Forest1::local_par_iter($f)
+    };
+    { [$f:expr $(, $fs:expr)+].par_iter() } => {
+        ::forest::Forest2::local_par_iter($f)
+            .chain(layers!([$($fs),*].par_iter()).map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)))
+    };
 }
 
 pub struct TowardsRootIter<R, A> {
@@ -688,175 +675,178 @@ mod test {
         assert_eq!(items, vec![&"child b", &"other child", &"root", &"root2"]);
     }
 
-    // #[test]
-    // fn merge_aflat_forest1() {
-    //     let mut forest1_a = Forest1::new();
-    //     let root_a = forest1_a.make_root("root a");
-    //     let _child_a_a = layers!([&mut forest1_a].make_node(root_a, "child_a a"));
-    //     let _child_b_a = layers!([&mut forest1_a].make_node(root_a, "child_b a"));
+    #[test]
+    fn merge_aflat_forest1() {
+        let mut forest1_a = Forest1::new();
+        let root_a = forest1_a.make_root("root a");
+        let _child_a_a = layers!([&mut forest1_a].make_node(root_a, "child_a a"));
+        let _child_b_a = layers!([&mut forest1_a].make_node(root_a, "child_b a"));
 
-    //     let mut forest1_b = Forest1::new();
-    //     let root_b = forest1_b.make_root("root b");
-    //     let child_a_b = layers!([&mut forest1_b].make_node(root_b, "child_a b"));
-    //     let _child_b_b = layers!([&mut forest1_b].make_node(child_a_b, "child_b b"));
+        let mut forest1_b = Forest1::new();
+        let root_b = forest1_b.make_root("root b");
+        let child_a_b = layers!([&mut forest1_b].make_node(root_b, "child_a b"));
+        let _child_b_b = layers!([&mut forest1_b].make_node(child_a_b, "child_b b"));
 
-    //     let forest1_a = merge_no_transform(forest1_b.merge_aflat(forest1_a));
+        let forest1_a = merge_no_transform(forest1_b.merge_aflat(forest1_a));
 
-    //     let mut items: Vec<_> = layers!([&forest1_a].iter()).collect();
-    //     items.sort_by_key(|item| item.1);
-    //     let verify = vec![&"child_a a", &"child_a b", &"child_b a", &"child_b b", &"root a", &"root b"];
-    //     assert_eq!(items.len(), verify.len());
-    //     for ((set_ref, item), verify_item) in items.into_iter().zip(verify) {
-    //         assert_eq!(item, verify_item);
-    //         assert_eq!(layers!([&forest1_a].get(set_ref)).map(|node| node.item), Some(item));
-    //     }
-    // }
+        let mut items: Vec<_> = layers!([&forest1_a].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child_a a", &"child_a b", &"child_b a", &"child_b b", &"root a", &"root b"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.into_iter().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest1_a].get(set_ref)).map(|node| node.item), Some(item));
+        }
+    }
 
-    // #[test]
-    // fn merge_aflat_forest2() {
-    //     let mut forest2_a = Forest2::new();
-    //     let root_a = forest2_a.make_root("root a");
-    //     let _child_a_a = layers!([&mut forest2_a].make_node(root_a, "child_a a"));
-    //     let _child_b_a = layers!([&mut forest2_a].make_node(root_a, "child_b a"));
+    #[test]
+    fn merge_aflat_forest2() {
+        let forest1 = Forest1::new();
+        let mut forest2_a = Forest2::new();
+        let root_a = forest2_a.make_root("root a");
+        let _child_a_a = layers!([&mut forest2_a, &forest1].make_node(root_a, "child_a a"));
+        let _child_b_a = layers!([&mut forest2_a, &forest1].make_node(root_a, "child_b a"));
 
-    //     let mut forest2_b = Forest2::new();
-    //     let root_b = forest2_b.make_root("root b");
-    //     let child_a_b = layers!([&mut forest2_b].make_node(root_b, "child_a b"));
-    //     let _child_b_b = layers!([&mut forest2_b].make_node(child_a_b, "child_b b"));
+        let mut forest2_b = Forest2::new();
+        let root_b = forest2_b.make_root("root b");
+        let child_a_b = layers!([&mut forest2_b, &forest1].make_node(root_b, "child_a b"));
+        let _child_b_b = layers!([&mut forest2_b, &forest1].make_node(child_a_b, "child_b b"));
 
-    //     let forest2_a = merge_no_transform(forest2_b.merge_aflat(forest2_a));
+        let forest2_a = merge_no_transform(forest2_b.merge_aflat(forest2_a));
 
-    //     let mut items: Vec<_> = layers!([&forest2_a].iter()).collect();
-    //     items.sort_by_key(|item| item.1);
-    //     let verify = vec![&"child_a a", &"child_a b", &"child_b a", &"child_b b", &"root a", &"root b"];
-    //     assert_eq!(items.len(), verify.len());
-    //     for ((set_ref, item), verify_item) in items.into_iter().zip(verify) {
-    //         assert_eq!(item, verify_item);
-    //         assert_eq!(layers!([&forest2_a].get(set_ref)).map(|node| node.item), Some(item));
-    //     }
-    // }
+        let mut items: Vec<_> = layers!([&forest2_a, &forest1].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child_a a", &"child_a b", &"child_b a", &"child_b b", &"root a", &"root b"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.into_iter().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest2_a, &forest1].get(set_ref)).map(|node| node.item), Some(item));
+        }
+    }
 
-    // #[test]
-    // fn merge_down_forest1() {
-    //     let mut forest1 = Forest1::new();
-    //     let root1 = forest1.make_root("root1");
-    //     let child1_a = layers!([&mut forest1].make_node(root1, "child1 a"));
-    //     let _child1_b = layers!([&mut forest1].make_node(root1, "child1 b"));
+    #[test]
+    fn merge_down_forest1() {
+        let mut forest1 = Forest1::new();
+        let root1 = forest1.make_root("root1");
+        let child1_a = layers!([&mut forest1].make_node(root1, "child1 a"));
+        let _child1_b = layers!([&mut forest1].make_node(root1, "child1 b"));
 
-    //     let mut forest2 = Forest2::new();
-    //     let root2 = forest2.make_root("root2");
-    //     let child2_a = layers!([&forest1, &mut forest2].make_node(root2, "child2 a"));
-    //     let _child2_b = layers!([&forest1, &mut forest2].make_node(child2_a, "child2 b"));
-    //     let child1_a2 = forest2.external(child1_a);
-    //     let _child2_c = layers!([&forest1, &mut forest2].make_node(child1_a2, "child2 c"));
+        let mut forest2 = Forest2::new();
+        let root2 = forest2.make_root("root2");
+        let child2_a = layers!([&mut forest2, &forest1].make_node(root2, "child2 a"));
+        let _child2_b = layers!([&mut forest2, &forest1].make_node(child2_a, "child2 b"));
+        let child1_a2 = forest2.external_ref(child1_a);
+        let _child2_c = layers!([&mut forest2, &forest1].make_node(child1_a2, "child2 c"));
 
-    //     let forest1 = merge_no_transform(forest2.merge_down(forest1));
+        let forest1 = merge_no_transform(forest2.merge_down(forest1));
 
-    //     let mut items: Vec<_> = layers!([&forest1].iter()).collect();
-    //     items.sort_by_key(|item| item.1);
-    //     let verify = vec![&"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root1", &"root2"];
-    //     assert_eq!(items.len(), verify.len());
-    //     for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
-    //         assert_eq!(item, verify_item);
-    //         assert_eq!(layers!([&forest1].get(set_ref)).map(|node| node.item), Some(item));
-    //     }
-    //     let child2_c = items[4].0;
-    //     let path: Vec<_> = layers!([&forest1].towards_root_iter(child2_c)).map(|p| p.item).collect();
-    //     assert_eq!(path, vec![&"child2 c", &"child1 a", &"root1"]);
-    // }
+        let mut items: Vec<_> = layers!([&forest1].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root1", &"root2"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest1].get(set_ref)).map(|node| node.item), Some(item));
+        }
+        let child2_c = items[4].0;
+        let path: Vec<_> = layers!([&forest1].towards_root_iter(child2_c)).map(|p| p.item).collect();
+        assert_eq!(path, vec![&"child2 c", &"child1 a", &"root1"]);
+    }
 
-    // #[test]
-    // fn merge_down_forest2() {
-    //     let mut forest1 = Forest2::new();
-    //     let root1 = forest1.make_root("root1");
-    //     let child1_a = layers!([&mut forest1].make_node(root1, "child1 a"));
-    //     let _child1_b = layers!([&mut forest1].make_node(root1, "child1 b"));
+    #[test]
+    fn merge_down_forest2() {
+        let forest0 = Forest1::new();
+        let mut forest1 = Forest2::new();
+        let root1 = forest1.make_root("root1");
+        let child1_a = layers!([&mut forest1, &forest0].make_node(root1, "child1 a"));
+        let _child1_b = layers!([&mut forest1, &forest0].make_node(root1, "child1 b"));
 
-    //     let mut forest2 = Forest2::new();
-    //     let root2 = forest2.make_root("root2");
-    //     let child2_a = layers!([&forest1, &mut forest2].make_node(root2, "child2 a"));
-    //     let _child2_b = layers!([&forest1, &mut forest2].make_node(child2_a, "child2 b"));
-    //     let child1_a2 = forest2.external(child1_a);
-    //     let _child2_c = layers!([&forest1, &mut forest2].make_node(child1_a2, "child2 c"));
+        let mut forest2 = Forest2::new();
+        let root2 = forest2.make_root("root2");
+        let child2_a = layers!([&mut forest2, &forest1, &forest0].make_node(root2, "child2 a"));
+        let _child2_b = layers!([&mut forest2, &forest1, &forest0].make_node(child2_a, "child2 b"));
+        let child1_a2 = forest2.external_ref(child1_a);
+        let _child2_c = layers!([&mut forest2, &forest1, &forest0].make_node(child1_a2, "child2 c"));
 
-    //     let forest1 = merge_no_transform(forest2.merge_down(forest1));
+        let forest1 = merge_no_transform(forest2.merge_down(forest1));
 
-    //     let mut items: Vec<_> = layers!([&forest1].iter()).collect();
-    //     items.sort_by_key(|item| item.1);
-    //     let verify = vec![&"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root1", &"root2"];
-    //     assert_eq!(items.len(), verify.len());
-    //     for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
-    //         assert_eq!(item, verify_item);
-    //         assert_eq!(layers!([&forest1].get(set_ref)).map(|node| node.item), Some(item));
-    //     }
-    //     let child2_c = items[4].0;
-    //     let path: Vec<_> = layers!([&forest1].towards_root_iter(child2_c)).map(|p| p.item).collect();
-    //     assert_eq!(path, vec![&"child2 c", &"child1 a", &"root1"]);
-    // }
+        let mut items: Vec<_> = layers!([&forest1, &forest0].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root1", &"root2"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest1, &forest0].get(set_ref)).map(|node| node.item), Some(item));
+        }
+        let child2_c = items[4].0;
+        let forest0_ref = &forest0;
+        let path: Vec<_> = layers!([&forest1, forest0_ref].towards_root_iter(child2_c)).map(|p| p.item).collect();
+        assert_eq!(path, vec![&"child2 c", &"child1 a", &"root1"]);
+    }
 
-    // #[test]
-    // fn merge_down_forest21() {
-    //     let mut forest0 = Forest1::new();
-    //     let root0 = forest0.make_root("root0");
-    //     let _child0_a = layers!([&mut forest0].make_node(root0, "child0 a"));
-    //     let child0_b = layers!([&mut forest0].make_node(root0, "child0 b"));
+    #[test]
+    fn merge_down_forest21() {
+        let mut forest0 = Forest1::new();
+        let root0 = forest0.make_root("root0");
+        let _child0_a = layers!([&mut forest0].make_node(root0, "child0 a"));
+        let child0_b = layers!([&mut forest0].make_node(root0, "child0 b"));
 
-    //     let mut forest1 = Forest2::new();
-    //     let root1 = forest1.make_root("root1");
-    //     let child0_b = forest1.external(child0_b);
-    //     let child1_a = layers!([&forest0, &mut forest1].make_node(child0_b, "child1 a"));
-    //     let _child1_b = layers!([&forest0, &mut forest1].make_node(root1, "child1 b"));
+        let mut forest1 = Forest2::new();
+        let root1 = forest1.make_root("root1");
+        let child0_b = forest1.external_ref(child0_b);
+        let child1_a = layers!([&mut forest1, &forest0].make_node(child0_b, "child1 a"));
+        let _child1_b = layers!([&mut forest1, &forest0].make_node(root1, "child1 b"));
 
-    //     let mut forest2 = Forest2::new();
-    //     let root2 = forest2.make_root("root2");
-    //     let child2_a = layers!([&forest0, &forest1, &mut forest2].make_node(root2, "child2 a"));
-    //     let _child2_b = layers!([&forest0, &forest1, &mut forest2].make_node(child2_a, "child2 b"));
-    //     let child1_a2 = forest2.external(child1_a);
-    //     let _child2_c = layers!([&forest0, &forest1, &mut forest2].make_node(child1_a2, "child2 c"));
+        let mut forest2 = Forest2::new();
+        let root2 = forest2.make_root("root2");
+        let child2_a = layers!([&mut forest2, &forest1, &forest0].make_node(root2, "child2 a"));
+        let _child2_b = layers!([&mut forest2, &forest1, &forest0].make_node(child2_a, "child2 b"));
+        let child1_a2 = forest2.external_ref(child1_a);
+        let _child2_c = layers!([&mut forest2, &forest1, &forest0].make_node(child1_a2, "child2 c"));
 
-    //     let forest1 = merge_no_transform(forest2.merge_down(forest1));
-    //     let forest0 = merge_no_transform(forest1.merge_down(forest0));
+        let forest1 = merge_no_transform(forest2.merge_down(forest1));
+        let forest0 = merge_no_transform(forest1.merge_down(forest0));
 
-    //     let mut items: Vec<_> = layers!([&forest0].iter()).collect();
-    //     items.sort_by_key(|item| item.1);
-    //     let verify = vec![&"child0 a", &"child0 b", &"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root0", &"root1", &"root2"];
-    //     assert_eq!(items.len(), verify.len());
-    //     for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
-    //         assert_eq!(item, verify_item);
-    //         assert_eq!(layers!([&forest0].get(set_ref)).map(|node| node.item), Some(item));
-    //     }
-    //     let child2_c = items[6].0;
-    //     let path: Vec<_> = layers!([&forest0].towards_root_iter(child2_c)).map(|p| p.item).collect();
-    //     assert_eq!(path, vec![&"child2 c", &"child1 a", &"child0 b", &"root0"]);
-    // }
+        let mut items: Vec<_> = layers!([&forest0].iter()).collect();
+        items.sort_by_key(|item| item.1);
+        let verify = vec![&"child0 a", &"child0 b", &"child1 a", &"child1 b", &"child2 a", &"child2 b", &"child2 c", &"root0", &"root1", &"root2"];
+        assert_eq!(items.len(), verify.len());
+        for ((set_ref, item), verify_item) in items.iter().cloned().zip(verify) {
+            assert_eq!(item, verify_item);
+            assert_eq!(layers!([&forest0].get(set_ref)).map(|node| node.item), Some(item));
+        }
+        let child2_c = items[6].0;
+        let path: Vec<_> = layers!([&forest0].towards_root_iter(child2_c)).map(|p| p.item).collect();
+        assert_eq!(path, vec![&"child2 c", &"child1 a", &"child0 b", &"root0"]);
+    }
 
-    // #[test]
-    // fn par_iter_forest21() {
-    //     let mut forest0 = Forest1::new();
-    //     let root0 = forest0.make_root("root0");
-    //     let _child0_a = layers!([&mut forest0].make_node(root0, "child0 a"));
-    //     let child0_b = layers!([&mut forest0].make_node(root0, "child0 b"));
+    #[test]
+    fn par_iter_forest21() {
+        let mut forest0 = Forest1::new();
+        let root0 = forest0.make_root("root0");
+        let _child0_a = layers!([&mut forest0].make_node(root0, "child0 a"));
+        let child0_b = layers!([&mut forest0].make_node(root0, "child0 b"));
 
-    //     let mut forest1 = Forest2::new();
-    //     let root1 = forest1.make_root("root1");
-    //     let child0_b = forest1.external(child0_b);
-    //     let child1_a = layers!([&forest0, &mut forest1].make_node(child0_b, "child1 a"));
-    //     let _child1_b = layers!([&forest0, &mut forest1].make_node(root1, "child1 b"));
+        let mut forest1 = Forest2::new();
+        let root1 = forest1.make_root("root1");
+        let child0_b = forest1.external_ref(child0_b);
+        let child1_a = layers!([&mut forest1, &forest0].make_node(child0_b, "child1 a"));
+        let _child1_b = layers!([&mut forest1, &forest0].make_node(root1, "child1 b"));
 
-    //     let mut forest2 = Forest2::new();
-    //     let root2 = forest2.make_root("root2");
-    //     let child2_a = layers!([&forest0, &forest1, &mut forest2].make_node(root2, "child2 a"));
-    //     let _child2_b = layers!([&forest0, &forest1, &mut forest2].make_node(child2_a, "child2 b"));
-    //     let child1_a2 = forest2.external(child1_a);
-    //     let _child2_c = layers!([&forest0, &forest1, &mut forest2].make_node(child1_a2, "child2 c"));
+        let mut forest2 = Forest2::new();
+        let root2 = forest2.make_root("root2");
+        let child2_a = layers!([&mut forest2, &forest1, &forest0].make_node(root2, "child2 a"));
+        let _child2_b = layers!([&mut forest2, &forest1, &forest0].make_node(child2_a, "child2 b"));
+        let child1_a2 = forest2.external_ref(child1_a);
+        let _child2_c = layers!([&mut forest2, &forest1, &forest0].make_node(child1_a2, "child2 c"));
 
-    //     use rayon::iter::ParallelIterator;
-    //     let mut items: Vec<_> = layers!([&forest0, &forest1, &forest2].par_iter()).map(|p| p.1).collect();
-    //     items.sort();
-    //     assert_eq!(items, vec![
-    //         &"child0 a", &"child0 b", &"child1 a", &"child1 b",
-    //         &"child2 a", &"child2 b", &"child2 c",
-    //         &"root0", &"root1", &"root2",
-    //     ]);
-    // }
+        use rayon::iter::ParallelIterator;
+        let mut items: Vec<_> = layers!([&forest2, &forest1, &forest0].par_iter()).map(|p| p.1).collect();
+        items.sort();
+        assert_eq!(items, vec![
+            &"child0 a", &"child0 b", &"child1 a", &"child1 b",
+            &"child2 a", &"child2 b", &"child2 c",
+            &"root0", &"root1", &"root2",
+        ]);
+    }
 }
