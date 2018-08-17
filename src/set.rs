@@ -1,6 +1,5 @@
 use std::{mem, sync::atomic::{self, AtomicUsize, ATOMIC_USIZE_INIT}};
 
-#[cfg(feature = "with-rayon")]
 use rayon::iter::{
     ParallelIterator,
     IntoParallelRefIterator,
@@ -141,7 +140,6 @@ impl<T> Set<T> {
         self.iter().map(|pair| pair.1)
     }
 
-    #[cfg(feature = "with-rayon")]
     pub fn par_iter(&self) -> impl ParallelIterator<Item = (Ref, &T)> where T: Sync {
         let set_uid = self.uid;
         self.cells.par_iter()

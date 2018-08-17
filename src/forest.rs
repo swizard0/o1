@@ -12,6 +12,8 @@ use super::{
     },
 };
 
+use rayon::iter::ParallelIterator;
+
 pub struct Node<T, R> {
     pub item: T,
     pub parent: Option<R>,
@@ -41,6 +43,10 @@ impl<T> Forest1<T> {
 
     pub fn local_iter(&self) -> impl Iterator<Item = (Ref, &T)> {
         self.nodes.iter().map(|(set_ref, node)| (set_ref, &node.item))
+    }
+
+    pub fn local_par_iter(&self) -> impl ParallelIterator<Item = (Ref, &T)> where T: Sync {
+        self.nodes.par_iter().map(|(set_ref, node)| (set_ref, &node.item))
     }
 }
 
@@ -73,6 +79,11 @@ impl<T, R> Forest2<T, R> {
 
     pub fn local_iter(&self) -> impl Iterator<Item = (Ref2<R>, &T)> {
         self.local_nodes.iter()
+            .map(|(set_ref, node)| (Ref2::Local(set_ref), &node.item))
+    }
+
+    pub fn local_par_iter(&self) -> impl ParallelIterator<Item = (Ref2<R>, &T)> where T: Sync, R: Sync + Send {
+        self.local_nodes.par_iter()
             .map(|(set_ref, node)| (Ref2::Local(set_ref), &node.item))
     }
 }
@@ -320,6 +331,17 @@ macro_rules! layers {
     };
     { @rec $i:expr, [$f:expr $(, $fs:expr)*].iter() } => {
         layers!(@rec $i.map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)).chain($f.local_iter()), [$($fs),*].iter())
+    };
+
+    // [&forest].par_iter()
+    { [$f:expr $(, $fs:expr)*].par_iter() } => {
+        layers!(@rec $f.local_par_iter(), [$($fs),*].par_iter())
+    };
+    { @rec $i:expr, [].par_iter() } => {
+        $i
+    };
+    { @rec $i:expr, [$f:expr $(, $fs:expr)*].par_iter() } => {
+        layers!(@rec $i.map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)).chain($f.local_par_iter()), [$($fs),*].par_iter())
     };
 }
 
@@ -873,5 +895,35 @@ mod test {
         let child2_c = items[6].0;
         let path: Vec<_> = layers!([&forest0].towards_root_iter(child2_c)).map(|p| p.item).collect();
         assert_eq!(path, vec![&"child2 c", &"child1 a", &"child0 b", &"root0"]);
+    }
+
+    #[test]
+    fn par_iter_forest21() {
+        let mut forest0 = Forest1::new();
+        let root0 = forest0.make_root("root0");
+        let _child0_a = layers!([&mut forest0].make_node(root0, "child0 a"));
+        let child0_b = layers!([&mut forest0].make_node(root0, "child0 b"));
+
+        let mut forest1 = Forest2::new();
+        let root1 = forest1.make_root("root1");
+        let child0_b = forest1.external(child0_b);
+        let child1_a = layers!([&forest0, &mut forest1].make_node(child0_b, "child1 a"));
+        let _child1_b = layers!([&forest0, &mut forest1].make_node(root1, "child1 b"));
+
+        let mut forest2 = Forest2::new();
+        let root2 = forest2.make_root("root2");
+        let child2_a = layers!([&forest0, &forest1, &mut forest2].make_node(root2, "child2 a"));
+        let _child2_b = layers!([&forest0, &forest1, &mut forest2].make_node(child2_a, "child2 b"));
+        let child1_a2 = forest2.external(child1_a);
+        let _child2_c = layers!([&forest0, &forest1, &mut forest2].make_node(child1_a2, "child2 c"));
+
+        use rayon::iter::ParallelIterator;
+        let mut items: Vec<_> = layers!([&forest0, &forest1, &forest2].par_iter()).map(|p| p.1).collect();
+        items.sort();
+        assert_eq!(items, vec![
+            &"child0 a", &"child0 b", &"child1 a", &"child1 b",
+            &"child2 a", &"child2 b", &"child2 c",
+            &"root0", &"root1", &"root2",
+        ]);
     }
 }
