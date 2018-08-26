@@ -276,13 +276,15 @@ macro_rules! layers {
 }
 
 pub struct TowardsRootIter<R, A> {
+    start: R,
     cursor: Option<R>,
     layer_access: A,
 }
 
 impl<R, A> TowardsRootIter<R, A> {
-    pub fn new(layer_access: A, node_ref: R) -> TowardsRootIter<R, A> {
+    pub fn new(layer_access: A, node_ref: R) -> TowardsRootIter<R, A> where R: Clone {
         TowardsRootIter {
+            start: node_ref.clone(),
             cursor: Some(node_ref),
             layer_access,
         }
@@ -297,6 +299,16 @@ impl<'a, T: 'a, R, A> Iterator for TowardsRootIter<R, A> where R: Clone, A: Fn(R
         let node = (self.layer_access)(node_ref.clone())?;
         self.cursor = node.parent.clone();
         Some(node)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.layer_access)(self.start.clone())
+            .map_or((0, None), |node| (node.depth + 1, Some(node.depth + 1)))
+    }
+
+    fn count(self) -> usize where Self: Sized {
+        (self.layer_access)(self.start.clone())
+            .map_or(0, |node| node.depth + 1)
     }
 }
 
