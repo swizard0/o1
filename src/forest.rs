@@ -37,6 +37,10 @@ impl<T> Forest1<T> {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+    }
+
     pub fn make_root(&mut self, item: T) -> Ref {
         self.insert(Node { item, parent: None, depth: 0, })
     }
@@ -101,6 +105,10 @@ impl<T, R> Forest2<T, R> {
         Forest2 {
             local_nodes: Set::with_capacity(capacity),
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.local_nodes.clear();
     }
 
     pub fn make_root(&mut self, item: T) -> Ref2<R> {
