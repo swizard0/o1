@@ -182,7 +182,7 @@ impl<T, R> Forest2<T, R> {
         }
     }
 
-    pub fn make_node<'s, 'a: 's, A>(&'s mut self, upper_layer_access: A, parent_ref: Ref2<R>, item: T) -> Ref2<R>
+    pub fn make_node<'s, 'a, A>(&'s mut self, upper_layer_access: A, parent_ref: Ref2<R>, item: T) -> Ref2<R>
         where T: 'a, R: Clone, A: FnOnce(R) -> Option<Node<&'a T, R>>
     {
         if let Some(parent_depth) = self.get(upper_layer_access, parent_ref.clone()).map(|node| node.depth) {
