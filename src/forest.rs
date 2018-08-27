@@ -235,7 +235,7 @@ macro_rules! layers {
         ::forest::Forest2::get($f, |r| layers!([$($fs),*].get(r)), $ref)
     };
 
-    // [&forest].get_mut(ref)
+    // [&mut forest].get_mut(ref)
     { [$f:expr].get_mut($ref:expr) } => {
         ::forest::Forest1::get_mut($f, $ref)
     };
@@ -243,12 +243,20 @@ macro_rules! layers {
         ::forest::Forest2::get_mut($f, |r| layers!([$($fs),*].get_mut(r)), $ref)
     };
 
-    // [&forest].make_node(parent_ref, item)
+    // [&mut forest].make_node(parent_ref, item)
     { [$f:expr].make_node($ref:expr, $item:expr) } => {
         ::forest::Forest1::make_node($f, $ref, $item)
     };
     { [$f:expr $(, $fs:expr)+].make_node($ref:expr, $item:expr) } => {
         ::forest::Forest2::make_node($f, |r| layers!([$($fs),*].get(r)), $ref, $item)
+    };
+
+    // [&mut forest].remove(ref)
+    { [$f:expr].remove($ref:expr) } => {
+        ::forest::Forest1::remove($f, $ref)
+    };
+    { [$f:expr $(, $fs:expr)+].remove($ref:expr) } => {
+        ::forest::Forest2::remove($f, |r| layers!([$($fs),*].remove(r)), $ref)
     };
 
     // [&forest].towards_root_iter(ref)
@@ -686,13 +694,26 @@ mod test {
         let child_b = layers!([&mut forest2, &forest1].make_node(child_a, "child b"));
         assert_eq!(layers!([&forest2, &forest1].get(child_b)).map(|node| node.item), Some(&"child b"));
 
-        let iter = layers!([&forest2, &forest1].towards_root_iter(child_b));
-        assert_eq!(iter.map(|node| node.item).collect::<Vec<_>>(), vec![&"child b", &"other child", &"root"]);
+        {
+            let iter = layers!([&forest2, &forest1].towards_root_iter(child_b));
+            assert_eq!(iter.map(|node| node.item).collect::<Vec<_>>(), vec![&"child b", &"other child", &"root"]);
+        }
+        {
+            let iter = layers!([&forest2, &forest1].iter()).map(|p| p.1);
+            let mut items: Vec<_> = iter.collect();
+            items.sort();
+            assert_eq!(items, vec![&"child b", &"other child", &"root", &"root2"]);
+        }
 
-        let iter = layers!([&forest2, &forest1].iter()).map(|p| p.1);
-        let mut items: Vec<_> = iter.collect();
-        items.sort();
-        assert_eq!(items, vec![&"child b", &"other child", &"root", &"root2"]);
+        let mut maybe_node_ref = Some(child_b);
+        while let Some(node_ref) = maybe_node_ref {
+            maybe_node_ref = layers!([&forest2, &forest1].get(node_ref)).and_then(|node| node.parent);
+            layers!([&mut forest2, &mut forest1].remove(node_ref));
+        }
+        assert_eq!(layers!([&forest2, &forest1].get(child_b)).map(|node| node.item), None);
+        assert_eq!(layers!([&forest2, &forest1].get(child_a)).map(|node| node.item), None);
+        assert_eq!(layers!([&forest2, &forest1].get(root_ext)).map(|node| node.item), None);
+        assert_eq!(layers!([&forest2, &forest1].get(root2)).map(|node| node.item), Some(&"root2"));
     }
 
     #[test]
