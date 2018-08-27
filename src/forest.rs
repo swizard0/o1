@@ -229,57 +229,57 @@ impl<T, R> Forest2<T, Ref2<R>> {
 macro_rules! layers {
     // [&forest].get(ref)
     { [$f:expr].get($ref:expr) } => {
-        ::forest::Forest1::get($f, $ref)
+        $crate::forest::Forest1::get($f, $ref)
     };
     { [$f:expr $(, $fs:expr)+].get($ref:expr) } => {
-        ::forest::Forest2::get($f, |r| layers!([$($fs),*].get(r)), $ref)
+        $crate::forest::Forest2::get($f, |r| layers!([$($fs),*].get(r)), $ref)
     };
 
     // [&mut forest].get_mut(ref)
     { [$f:expr].get_mut($ref:expr) } => {
-        ::forest::Forest1::get_mut($f, $ref)
+        $crate::forest::Forest1::get_mut($f, $ref)
     };
     { [$f:expr $(, $fs:expr)+].get_mut($ref:expr) } => {
-        ::forest::Forest2::get_mut($f, |r| layers!([$($fs),*].get_mut(r)), $ref)
+        $crate::forest::Forest2::get_mut($f, |r| layers!([$($fs),*].get_mut(r)), $ref)
     };
 
     // [&mut forest].make_node(parent_ref, item)
     { [$f:expr].make_node($ref:expr, $item:expr) } => {
-        ::forest::Forest1::make_node($f, $ref, $item)
+        $crate::forest::Forest1::make_node($f, $ref, $item)
     };
     { [$f:expr $(, $fs:expr)+].make_node($ref:expr, $item:expr) } => {
-        ::forest::Forest2::make_node($f, |r| layers!([$($fs),*].get(r)), $ref, $item)
+        $crate::forest::Forest2::make_node($f, |r| layers!([$($fs),*].get(r)), $ref, $item)
     };
 
     // [&mut forest].remove(ref)
     { [$f:expr].remove($ref:expr) } => {
-        ::forest::Forest1::remove($f, $ref)
+        $crate::forest::Forest1::remove($f, $ref)
     };
     { [$f:expr $(, $fs:expr)+].remove($ref:expr) } => {
-        ::forest::Forest2::remove($f, |r| layers!([$($fs),*].remove(r)), $ref)
+        $crate::forest::Forest2::remove($f, |r| layers!([$($fs),*].remove(r)), $ref)
     };
 
     // [&forest].towards_root_iter(ref)
     { [$($fs:expr),+].towards_root_iter($ref:expr) } => {
-        ::forest::TowardsRootIter::new(|r| layers!([$($fs),*].get(r)), $ref)
+        $crate::forest::TowardsRootIter::new(|r| layers!([$($fs),*].get(r)), $ref)
     };
 
     // [&forest].iter()
     { [$f:expr].iter() } => {
-        ::forest::Forest1::local_iter($f)
+        $crate::forest::Forest1::local_iter($f)
     };
     { [$f:expr $(, $fs:expr)+].iter() } => {
-        ::forest::Forest2::local_iter($f)
-            .chain(layers!([$($fs),*].iter()).map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)))
+        $crate::forest::Forest2::local_iter($f)
+            .chain(layers!([$($fs),*].iter()).map(|(set_ref, item)| ($crate::forest::Ref2::External(set_ref), item)))
     };
 
     // [&forest].par_iter()
     { [$f:expr].par_iter() } => {
-        ::forest::Forest1::local_par_iter($f)
+        $crate::forest::Forest1::local_par_iter($f)
     };
     { [$f:expr $(, $fs:expr)+].par_iter() } => {
-        ::forest::Forest2::local_par_iter($f)
-            .chain(layers!([$($fs),*].par_iter()).map(|(set_ref, item)| (::forest::Ref2::External(set_ref), item)))
+        $crate::forest::Forest2::local_par_iter($f)
+            .chain(layers!([$($fs),*].par_iter()).map(|(set_ref, item)| ($crate::forest::Ref2::External(set_ref), item)))
     };
 }
 
