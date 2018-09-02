@@ -41,6 +41,10 @@ impl<T> Forest1<T> {
         self.nodes.clear();
     }
 
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
     pub fn make_root(&mut self, item: T) -> Ref {
         self.insert(Node { item, parent: None, depth: 0, })
     }
