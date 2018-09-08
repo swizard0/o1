@@ -208,6 +208,7 @@ impl<SI, TI> SetsInProgressMerger<SI, TI> {
                 mem::replace(&mut source_set.cells[source_cell_index].state, CellState::Regular { item: None, });
             if let CellState::Reloc { item, reloc_index, } = taken_state {
                 source_set.cells[source_cell_index].state = CellState::Moved { reloc_index, };
+                source_set.len -= 1;
                 let item_ref = Ref {
                     index: source_cell_index,
                     serial: source_set.cells[source_cell_index].serial,
@@ -368,8 +369,10 @@ mod test {
         let mut merge_step = merge_init.merge_start();
         let set_a = loop {
             match merge_step {
-                MergeState::Finish { merged, .. } =>
-                    break merged,
+                MergeState::Finish { merged, empty, } => {
+                    assert_eq!(empty.len(), 0);
+                    break merged;
+                },
                 MergeState::Continue { item_ref, item, next, } => {
                     assert!(table.remove(&(1, item_ref)));
                     let transformed_item = item as u64;
