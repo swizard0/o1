@@ -115,6 +115,10 @@ impl<T, R> Forest2<T, R> {
         self.local_nodes.clear();
     }
 
+    pub fn len(&self) -> usize {
+        self.local_nodes.len()
+    }
+
     pub fn make_root(&mut self, item: T) -> Ref2<R> {
         self.insert(Node { item, parent: None, depth: 0, })
     }
