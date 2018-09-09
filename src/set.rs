@@ -63,9 +63,13 @@ impl<T> Set<T> {
     }
 
     pub fn insert(&mut self, item: T) -> Ref {
+        self.insert_with(|_| item)
+    }
+
+    pub fn insert_with<F>(&mut self, f: F) -> Ref where F: FnOnce(Ref) -> T {
         let set_ref = self.insert_empty();
         self.cells[set_ref.index].state =
-            CellState::Regular { item: Some(item), };
+            CellState::Regular { item: Some(f(set_ref)), };
         set_ref
     }
 
