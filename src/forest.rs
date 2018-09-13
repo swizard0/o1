@@ -45,6 +45,10 @@ impl<T> Forest1<T> {
         self.nodes.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn make_root(&mut self, item: T) -> Ref {
         self.insert(Node { item, parent: None, depth: 0, })
     }
@@ -117,6 +121,10 @@ impl<T, R> Forest2<T, R> {
 
     pub fn len(&self) -> usize {
         self.local_nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn make_root(&mut self, item: T) -> Ref2<R> {
