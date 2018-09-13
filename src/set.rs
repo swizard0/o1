@@ -20,6 +20,12 @@ pub struct Ref {
     serial: u64,
 }
 
+impl Ref {
+    pub fn serial(&self) -> u64 {
+        self.serial
+    }
+}
+
 pub struct Set<T> {
     uid: u64,
     serial: u64,
