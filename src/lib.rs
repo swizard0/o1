@@ -3,5 +3,6 @@ extern crate rayon;
 extern crate rand;
 
 pub mod set;
+pub mod vec;
 pub mod forest;
 pub mod merge;
