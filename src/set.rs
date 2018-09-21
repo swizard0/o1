@@ -59,6 +59,10 @@ impl<T> Set<T> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn serial(&self) -> u64 {
         self.serial
     }
@@ -114,7 +118,7 @@ impl<T> Set<T> {
 
     pub fn merge<U>(mut self, mut source_set: Set<U>) -> SetsInitMerger<U, T> {
         self.cells.reserve(source_set.len());
-        for source_cell in source_set.cells.iter_mut() {
+        for source_cell in &mut source_set.cells {
             let taken_state = mem::replace(&mut source_cell.state, CellState::Regular { item: None, });
             if let CellState::Regular { item: Some(source_item), } = taken_state {
                 let set_ref = self.insert_empty();
@@ -175,6 +179,12 @@ impl<T> Set<T> {
         };
         self.len += 1;
         Ref { index, serial, set_uid: self.uid, }
+    }
+}
+
+impl<T> Default for Set<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
