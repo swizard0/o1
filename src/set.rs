@@ -13,7 +13,7 @@ use super::merge::{
 
 pub static UID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Ref {
     index: usize,
     set_uid: u64,

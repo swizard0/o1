@@ -98,7 +98,7 @@ impl<T> Default for Forest1<T> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Ref2<R> {
     Local(Ref),
     External(R),
