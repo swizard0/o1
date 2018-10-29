@@ -67,6 +67,10 @@ impl<T> List<T> {
         }
     }
 
+    pub fn pop_front(&mut self) -> Option<T> {
+        self.head.and_then(|head_ref| self.remove(head_ref))
+    }
+
     pub fn iter<'a>(&'a self) -> ListIter<'a, T> {
         ListIter {
             set: &self.set,
