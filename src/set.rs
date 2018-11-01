@@ -146,6 +146,18 @@ impl<T> Set<T> {
             })
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Ref, &mut T)> {
+        let set_uid = self.uid;
+        self.cells.iter_mut()
+            .enumerate()
+            .flat_map(move |(index, cell)| match cell.state {
+                CellState::Regular { item: Some(ref mut item), } =>
+                    Some((Ref { index, set_uid, serial: cell.serial, }, item)),
+                _ =>
+                    None,
+            })
+    }
+
     pub fn refs<'a>(&'a self) -> impl Iterator<Item = Ref> + 'a {
         self.iter().map(|pair| pair.0)
     }
