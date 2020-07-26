@@ -1,4 +1,4 @@
-use std::{mem, sync::atomic::{self, AtomicUsize, ATOMIC_USIZE_INIT}};
+use std::{mem, sync::atomic::{self, AtomicUsize}};
 
 use rayon::iter::{
     ParallelIterator,
@@ -11,7 +11,7 @@ use super::merge::{
     InProgressMerger,
 };
 
-pub static UID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+pub static UID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Ref {
@@ -290,10 +290,23 @@ fn transform_ref<T, U>(target_set: &Set<T>, source_set: &Set<U>, source_ref: Ref
 
 #[cfg(test)]
 mod test {
-    use std::collections::{HashMap, HashSet};
-    use rand::{self, Rng};
-    use super::super::merge::{MergeState, InitMerger, InProgressMerger};
-    use super::Set;
+    use std::collections::{
+        HashMap,
+        HashSet,
+    };
+    use rand::{
+        self,
+        Rng,
+        seq::SliceRandom,
+    };
+    use super::{
+        Set,
+        super::merge::{
+            MergeState,
+            InitMerger,
+            InProgressMerger,
+        },
+    };
 
     #[test]
     fn add_remove_10000() {
@@ -372,7 +385,7 @@ mod test {
             inserted.push((0, set_a.insert(rng.gen())));
             inserted.push((1, set_b.insert(rng.gen())));
         }
-        rng.shuffle(&mut inserted);
+        inserted.shuffle(&mut rng);
         for _ in 0 .. 2500 {
             match inserted.pop() {
                 Some((0, set_ref)) => {

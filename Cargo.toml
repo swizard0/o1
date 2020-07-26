@@ -1,11 +1,11 @@
 [package]
 name = "o1"
-version = "0.6.5"
+version = "0.6.6"
 description = "O(1) complexity, minimum allocations and concurrency friendly collection of data structures and algorithms"
 authors = ["Alexey Voznyuk <me@swizard.info>"]
 
 [dependencies]
-rayon = { version = "1.0" }
+rayon = { version = "^1.3" }
 
 [dev-dependencies]
-rand = "0.5"
+rand = "^0.7"
