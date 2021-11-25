@@ -87,10 +87,10 @@ mod test {
     #[test]
     fn merge_100000() {
         let mut rng = rand::thread_rng();
-        let vec_a_len = rng.gen_range(50000, 100000);
+        let vec_a_len = rng.gen_range(50000 .. 100000);
         let mut vec_a: Vec<_> = (0 .. vec_a_len).map(|_| rng.gen()).collect();
         vec_a.sort();
-        let vec_b_len = rng.gen_range(1000, 100000);
+        let vec_b_len = rng.gen_range(1000 .. 100000);
         let mut vec_b: Vec<_> = (0 .. vec_b_len).map(|_| rng.gen()).collect();
         vec_b.sort();
 
@@ -121,8 +121,8 @@ mod test {
         }
 
         let mut rng = rand::thread_rng();
-        let vec_a_len = rng.gen_range(5000, 10000);
-        let vec_b_len = rng.gen_range(100, 10000);
+        let vec_a_len = rng.gen_range(5000 .. 10000);
+        let vec_b_len = rng.gen_range(100 .. 10000);
 
         {
             let mut vec_a: Vec<_> = (0 .. vec_a_len).map(|_| DropCount { value: rng.gen(), counter: &drops_counter, }).collect();

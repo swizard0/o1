@@ -162,14 +162,14 @@ mod test {
         let mut rng = rand::thread_rng();
 
         for _ in 0 .. 16384 {
-            let choice = rng.gen_range(0, 100);
+            let choice = rng.gen_range(0 .. 100);
             if choice < 66 {
                 let item: u64 = rng.gen();
                 let link_ref = list.prepend(item);
                 table.insert(link_ref, item);
                 refs.push(link_ref);
             } else if !refs.is_empty() {
-                let index = rng.gen_range(0, refs.len());
+                let index = rng.gen_range(0 .. refs.len());
                 let link_ref = refs.swap_remove(index);
                 let item = list.remove(link_ref).unwrap();
                 assert_eq!(table.remove(&link_ref), Some(item));

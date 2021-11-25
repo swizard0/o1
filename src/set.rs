@@ -339,7 +339,7 @@ mod test {
         let mut total = 0;
         let mut rng = rand::thread_rng();
         for item in 0 .. 100000 {
-            match rng.gen_range(0, 10) {
+            match rng.gen_range(0 .. 10) {
                 0 ..= 5 => {
                     let set_ref = set.insert(item);
                     inserted.push((item, set_ref));
@@ -347,7 +347,7 @@ mod test {
                     assert_eq!(set.len(), total);
                 },
                 6 ..= 7 if !inserted.is_empty() => {
-                    let index = rng.gen_range(0, inserted.len());
+                    let index = rng.gen_range(0 .. inserted.len());
                     let (item, set_ref) = inserted.swap_remove(index);
                     assert_eq!(set.remove(set_ref), Some(item));
                     removed.push(set_ref);
@@ -355,7 +355,7 @@ mod test {
                     assert_eq!(set.len(), total);
                 },
                 8 ..= 9 if !removed.is_empty() => {
-                    let index = rng.gen_range(0, removed.len());
+                    let index = rng.gen_range(0 .. removed.len());
                     let set_ref = removed[index];
                     assert_eq!(set.remove(set_ref), None);
                     assert_eq!(set.len(), total);

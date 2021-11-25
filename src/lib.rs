@@ -1,6 +1,4 @@
-extern crate rayon;
-#[cfg(test)]
-extern crate rand;
+#[forbid(unsafe_code)]
 
 pub mod set;
 pub mod vec;
