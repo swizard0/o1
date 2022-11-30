@@ -1,6 +1,6 @@
 [package]
 name = "o1"
-version = "0.6.7"
+version = "0.7.0"
 description = "O(1) complexity, minimum allocations and concurrency friendly collection of data structures and algorithms"
 authors = ["Alexey Voznyuk <me@swizard.info>"]
 edition = "2021"

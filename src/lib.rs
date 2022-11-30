@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 pub mod set;
 pub mod vec;
 pub mod forest;

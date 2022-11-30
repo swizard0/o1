@@ -1,14 +1,27 @@
-use std::{mem, sync::atomic::{self, AtomicUsize}};
-
-use rayon::iter::{
-    ParallelIterator,
-    IntoParallelRefIterator,
-    IndexedParallelIterator,
+use std::{
+    mem,
+    sync::{
+        atomic::{
+            self,
+            AtomicUsize,
+        },
+    },
 };
-use super::merge::{
-    MergeState,
-    InitMerger,
-    InProgressMerger,
+
+use rayon::{
+    iter::{
+        ParallelIterator,
+        IntoParallelRefIterator,
+        IndexedParallelIterator,
+    },
+};
+
+use crate::{
+    merge::{
+        MergeState,
+        InitMerger,
+        InProgressMerger,
+    },
 };
 
 pub static UID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -76,11 +89,15 @@ impl<T> Set<T> {
         self.insert_with(|_| item)
     }
 
+    pub fn insert_entry(&mut self) -> InsertEntry<'_, T> {
+        let empty_ref = self.insert_empty();
+        InsertEntry { set: Some(self), empty_ref, }
+    }
+
     pub fn insert_with<F>(&mut self, f: F) -> Ref where F: FnOnce(Ref) -> T {
-        let set_ref = self.insert_empty();
-        self.cells[set_ref.index].state =
-            CellState::Regular { item: Some(f(set_ref)), };
-        set_ref
+        let entry = self.insert_entry();
+        let set_ref = *entry.set_ref();
+        entry.commit(f(set_ref))
     }
 
     pub fn remove(&mut self, set_ref: Ref) -> Option<T> {
@@ -109,7 +126,12 @@ impl<T> Set<T> {
 
     pub fn get_mut(&mut self, set_ref: Ref) -> Option<&mut T> {
         match self.cells.get_mut(set_ref.index) {
-            Some(&mut Cell { serial, state: CellState::Regular { ref mut item, }, }) if set_ref.set_uid == self.uid && serial == set_ref.serial =>
+            Some(&mut Cell {
+                serial,
+                state: CellState::Regular {
+                    ref mut item,
+                },
+            }) if set_ref.set_uid == self.uid && serial == set_ref.serial =>
                 item.as_mut(),
             _ =>
                 None,
@@ -158,7 +180,7 @@ impl<T> Set<T> {
             })
     }
 
-    pub fn refs<'a>(&'a self) -> impl Iterator<Item = Ref> + 'a {
+    pub fn refs(&self) -> impl Iterator<Item = Ref> + '_ {
         self.iter().map(|pair| pair.0)
     }
 
@@ -191,6 +213,37 @@ impl<T> Set<T> {
         };
         self.len += 1;
         Ref { index, serial, set_uid: self.uid, }
+    }
+}
+
+pub struct InsertEntry<'a, T> {
+    set: Option<&'a mut Set<T>>,
+    empty_ref: Ref,
+}
+
+impl<'a, T> InsertEntry<'a, T> {
+    pub fn set_ref(&self) -> &Ref {
+        &self.empty_ref
+    }
+
+    pub fn commit(mut self, value: T) -> Ref {
+        let set = self.set.take().unwrap();
+        let set_ref = self.set_ref();
+        set.cells[set_ref.index].state =
+            CellState::Regular { item: Some(value), };
+        *set_ref
+    }
+}
+
+impl<'a, T> Drop for InsertEntry<'a, T> {
+    fn drop(&mut self) {
+        if let Some(set) = self.set.take() {
+            let set_ref = self.set_ref();
+            if let Some(Cell { state: CellState::Regular { item: None, }, .. }) = set.cells.get_mut(set_ref.index) {
+                set.free.push(set_ref.index);
+                set.len -= 1;
+            }
+        }
     }
 }
 
@@ -290,18 +343,26 @@ fn transform_ref<T, U>(target_set: &Set<T>, source_set: &Set<U>, source_ref: Ref
 
 #[cfg(test)]
 mod test {
-    use std::collections::{
-        HashMap,
-        HashSet,
+    use std::{
+        collections::{
+            HashMap,
+            HashSet,
+        },
     };
+
     use rand::{
         self,
         Rng,
-        seq::SliceRandom,
+        seq::{
+            SliceRandom,
+        },
     };
-    use super::{
-        Set,
-        super::merge::{
+
+    use crate::{
+        set::{
+            Set,
+        },
+        merge::{
             MergeState,
             InitMerger,
             InProgressMerger,
@@ -406,7 +467,7 @@ mod test {
         for (idx, set_ref) in inserted {
             table.insert((idx, set_ref));
             if idx == 0 {
-                verify.insert(set_ref, set_a.get(set_ref).unwrap().clone());
+                verify.insert(set_ref, *set_a.get(set_ref).unwrap());
             }
         }
 

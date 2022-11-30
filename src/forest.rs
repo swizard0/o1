@@ -1,4 +1,4 @@
-use super::{
+use crate::{
     set::{
         Set,
         Ref,
@@ -12,7 +12,11 @@ use super::{
     },
 };
 
-use rayon::iter::ParallelIterator;
+use rayon::{
+    iter::{
+        ParallelIterator,
+    },
+};
 
 pub struct Node<T, R> {
     pub item: T,
@@ -57,12 +61,12 @@ impl<T> Forest1<T> {
         self.nodes.insert(node)
     }
 
-    pub fn get<'s>(&'s self, node_ref: Ref) -> Option<Node<&'s T, Ref>> {
+    pub fn get(&self, node_ref: Ref) -> Option<Node<&T, Ref>> {
         self.nodes.get(node_ref)
             .map(|node| Node { item: &node.item, parent: node.parent, depth: node.depth, })
     }
 
-    pub fn get_mut<'s>(&'s mut self, node_ref: Ref) -> Option<Node<&'s mut T, Ref>> {
+    pub fn get_mut(&mut self, node_ref: Ref) -> Option<Node<&mut T, Ref>> {
         self.nodes.get_mut(node_ref)
             .map(|node| Node { item: &mut node.item, parent: node.parent, depth: node.depth, })
     }
@@ -332,7 +336,7 @@ impl<'a, T: 'a, R, A> Iterator for TowardsRootIter<R, A> where R: Clone, A: Fn(R
 
     fn next(&mut self) -> Option<Self::Item> {
         let node_ref = self.cursor.take()?;
-        let node = (self.layer_access)(node_ref.clone())?;
+        let node = (self.layer_access)(node_ref)?;
         self.cursor = node.parent.clone();
         Some(node)
     }
@@ -654,11 +658,15 @@ impl<T, R> InProgressMerger<Ref2<Ref2<R>>, Ref2<R>, T, T, Forest2Down2InProgress
 
 #[cfg(test)]
 mod test {
-    use super::super::merge::merge_no_transform;
-    use super::{
-        Forest1,
-        Forest2,
-        TowardsRootIter,
+    use crate::{
+        merge::{
+            merge_no_transform,
+        },
+        forest::{
+            Forest1,
+            Forest2,
+            TowardsRootIter,
+        },
     };
 
     #[test]

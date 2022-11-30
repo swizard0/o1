@@ -1,4 +1,9 @@
-use super::set::{Ref, Set};
+use crate::{
+    set::{
+        Ref,
+        Set,
+    },
+};
 
 // External doubly linked lists manager
 pub struct List<T> {
@@ -10,6 +15,12 @@ pub struct Link<T> {
     pub item: T,
     prev: Option<Ref>,
     next: Option<Ref>,
+}
+
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> List<T> {
@@ -52,6 +63,7 @@ impl<T> List<T> {
         }
     }
 
+    #[allow(clippy::option_map_unit_fn)]
     pub fn remove(&mut self, link_ref: Ref) -> Option<T> {
         if let Some(Link { item, prev, next, }) = self.set.remove(link_ref) {
             if self.head.map_or(false, |head_ref| head_ref == link_ref) {
@@ -71,7 +83,7 @@ impl<T> List<T> {
         self.head.and_then(|head_ref| self.remove(head_ref))
     }
 
-    pub fn iter<'a>(&'a self) -> ListIter<'a, T> {
+    pub fn iter(&self) -> ListIter<'_, T> {
         ListIter {
             set: &self.set,
             cur: self.head,
@@ -96,9 +108,19 @@ impl<'a, T> Iterator for ListIter<'a, T> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::{
+        collections::{
+            HashMap,
+        },
+    };
+
     use rand::{self, Rng};
-    use super::List;
+
+    use crate::{
+        dll::{
+            List,
+        },
+    };
 
     #[test]
     fn remove_head() {

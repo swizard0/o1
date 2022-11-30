@@ -1,4 +1,6 @@
-use std::mem;
+use std::{
+    mem,
+};
 
 pub fn drain_merge_sorted<T, F>(vec_dst: &mut Vec<T>, vec: &mut Vec<T>, mut less_p: F) where F: FnMut(&T, &T) -> bool {
     if vec.is_empty() {
